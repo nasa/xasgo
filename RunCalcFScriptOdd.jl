@@ -4,22 +4,22 @@ plotly()
 
 function CalcF(ROIs, ROIsize, DefI, PD, RefI, PR)
 
-m = minimum(size(DefI))
-qs = zeros(size(ROIs))
-Qvp=[-1 0 0; 0 -1 0; 0 0 1]
-ROIpix = 2*convert(Int64,m*ROIsize/200) #ROI forced to be even and square
-ccfilt = ccfilter(2,50, [ROIpix,ROIpix], 13)
-windowfunc = ccwindow(ROIpix)
+m = minimum(size(DefI))  # smallest dimension of image
+#qs = zeros(size(ROIs))
+ROIsize_px = 2*convert(Int64,m*ROIsize/200) #ROI forced to be even and square
+ccfilt = ccfilter(2,50, [ROIsize_px,ROIsize_px], 13)
+windowfunc = ccwindow(ROIsize_px)
 qerror = zeros(2,size(ROIs)[1])
 for i in 1:size(ROIs)[1]
+  ROI_px = m*ROIs[i,:]
 
-  shiftROI = shift_estimate_simple(ROIs[i,:],PD,PR, m, Qvp)
+  shiftROI_px = shift_estimate_simple(ROI_px,PD,PR, m)
 
-  trueq = shiftROI - round.(m*[ROIs[i,2];ROIs[i,1]])
-  truepeak = [trueq[2];trueq[1]] + [ROIpix+1,ROIpix+1]
+  trueq = shiftROI_px - (round.([ROI_px[2];ROI_px[1]]) - [0.5;0.5])
+  truepeak = [trueq[2];trueq[1]] + [ROIsize_px+1,ROIsize_px+1]
   #println([trueq[2], trueq[1]])
 
-  thisq = MeasureShiftClassic_w_Shift(DefI, RefI, m*ROIs[i,:], shiftROI, ROIpix, windowfunc, ccfilt)
+  thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
 
   #println(thisq)
   #println(" ")
@@ -27,18 +27,18 @@ for i in 1:size(ROIs)[1]
 
 end
 #display(scatter(qerror[1,:],qerror[2,:]))
-println(mean(qerror[1,:]))
-println(mean(qerror[2,:]))
-println(std(qerror[1,:]))
-println(std(qerror[2,:]))
+println("mean X error: ", mean(qerror[1,:]))
+println("mean Y error: ", mean(qerror[2,:]))
+println("std X error: ", std(qerror[1,:]))
+println("std Y error: ", std(qerror[2,:]))
 end
 
-function MeasureShiftClassic_w_Shift(DefI, RefI, ROI, shiftROI, ROIpix, windowfunc, ccfilt)
-  rrange=round(Int,ROI[1]-ROIpix/2):round(Int,ROI[1]-ROIpix/2)+ROIpix-1
-  crange=round(Int,ROI[2]-ROIpix/2):round(Int,ROI[2]-ROIpix/2)+ROIpix-1
+function MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
+  rrange=round(Int,ROI_px[1]-ROIsize_px/2):round(Int,ROI_px[1]-ROIsize_px/2)+ROIsize_px-1
+  crange=round(Int,ROI_px[2]-ROIsize_px/2):round(Int,ROI_px[2]-ROIsize_px/2)+ROIsize_px-1
 
-  srrange=round(Int,shiftROI[2] - ROIpix/2):round(Int,shiftROI[2] - ROIpix/2)+ROIpix-1
-  scrange=round(Int,shiftROI[1] - ROIpix/2):round(Int,shiftROI[1] - ROIpix/2)+ROIpix-1
+  srrange=round(Int,shiftROI_px[2] - ROIsize_px/2):round(Int,shiftROI_px[2] - ROIsize_px/2)+ROIsize_px-1
+  scrange=round(Int,shiftROI_px[1] - ROIsize_px/2):round(Int,shiftROI_px[1] - ROIsize_px/2)+ROIsize_px-1
 
   DROI = DefI[srrange,scrange]
   RROI = RefI[rrange,crange]
@@ -46,17 +46,18 @@ function MeasureShiftClassic_w_Shift(DefI, RefI, ROI, shiftROI, ROIpix, windowfu
   FD = rfft(windowfunc.*DROI)
   FR = rfft(windowfunc.*RROI)#windowfunc.*
 
-  CC = fftshift(brfft(ccfilt[1:round(Int,ROIpix/2)+1,:].*FD.*conj(FR),ROIpix))#ccfilt[1:round(Int,ROIpix/2)+1,:].*
+  CC = fftshift(brfft(ccfilt[1:round(Int,ROIsize_px/2)+1,:].*FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
 
-  q = findpeak2(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIpix/2 - 1
+  q = findpeak2(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIsize_px/2 - 1
 end
 
-function shift_estimate_simple(ROI, PD, PR, m, Qvp)
-  r = Qvp*round.(m*[ROI[2];ROI[1];0]) + m*[PR[1];1-PR[2];-PR[3]]
+function shift_estimate_simple(ROI_px, PD, PR, m)
+  Qvp=[-1 0 0; 0 -1 0; 0 0 1]
+  r = Qvp*(round.([ROI_px[2]; ROI_px[1]; 0]) - [0.5; 0.5; 0.]) + m*[PR[1]; 1-PR[2]; -PR[3]]
   δP = PD - PR
   δP = m*[-δP[1];δP[2];δP[3]]
   shiftROI3D = Qvp'*(-m*[PR[1];1-PR[2];-PR[3]] + δP + r*PD[3]/PR[3])
-  shiftROI = [shiftROI3D[1];shiftROI3D[2]]
+  shiftROI_px = [shiftROI3D[1];shiftROI3D[2]]
 end
 
 function findpeak(A)
@@ -130,7 +131,7 @@ function ccwindow(L)
   return windowfunc
 end
 
-cd("D:\\XASGO")
+
 RefI = load("ZeroCamElevation_x0y0.png")
 #display(heatmap(RefI))
 RefI = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},RefI)
