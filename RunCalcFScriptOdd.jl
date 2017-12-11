@@ -1,5 +1,6 @@
 using Images, Colors, FixedPointNumbers, Plots
 using FFTW
+include("DIC.jl")
 plotly()
 
 function CalcF(ROIs, ROIsize, DefI, PD, RefI, PR)
@@ -20,6 +21,8 @@ for i in 1:size(ROIs)[1]
   #println([trueq[2], trueq[1]])
 
   thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
+
+  testq = RunIcgn(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px)
 
   #println(thisq)
   #println(" ")
@@ -147,7 +150,7 @@ PD = [.48046875;.518353371499725;.706680080924329] #x500y500
 #PD = [.5;.51835337;.70668008] #x0y500
 #PD = [0.498046875000000;0.501835337149973;0.700668008092433]#x50y50
 
-N = 48
+N = 2
 
 θs = 2*pi*collect(0:N-2)/(N-1)
 
