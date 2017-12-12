@@ -3,6 +3,8 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   # notation:
   # F: intensity of entire undeformed image
   # G: intensity of entire deformed image
+  # F_coeff: biquintic spline coefficients of entire undeformed image
+  # G_coeff: biquintic spline coefficients of entire deformed image
   # ROI: region of interest (nx2 array of x,y locations) 
   # ROIrelative: region of interest described relative to center of ROI
   # ref_c: [x, y] location of center of ROI in reference image
@@ -11,9 +13,9 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   # p: vector of deformations to be solved for
   
   ROIrelative = SquareRoiEvenSize(ROIsize)
-  df_ddp = GetSteepestDescentImages(F, ref_c, ROIrelative)
+  df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative)
   
-  f = EvaluateWarpedImage(F, ref_c, ROIrelative, zeros(6))
+  f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6))
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
   p_old = [initial_guess_u[1], initial_guess_u[2], 0, 0, 0, 0]  
@@ -23,7 +25,7 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   while !converged && num_iterations < 100
     println(num_iterations)
     num_iterations += 1
-    g = EvaluateWarpedImage(G, ref_c, ROIrelative, p_old)
+    g = EvaluateWarpedImage(G_coeff, ref_c, ROIrelative, p_old)
     g_m = mean(g)
     grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
     dp = hess\(-grad)
@@ -113,12 +115,49 @@ function EvaluateWarpedImage(F, ref_c, ROIrelative, p)
 end
 
 
-function SplineDerivative(F, ROI)
-  placeholder = rand(size(ROI))
+function SplineDerivative(F_coeff, ROI)
+  pad_size = 2
+  QK = [1/120  13/60  11/20  13/60  1/120  0;
+        -1/24  -5/12  0  5/12  1/24  0;
+        1/12  1/6  -1/2  1/6  1/12  0;
+        -1/12  1/6  0  -1/6  1/12  0;
+        1/24  -1/6 1/4  -1/6  1/24  0;
+        -1/120  1/24  -1/12  1/12  -1/24  1/120]
+  df = Array{float}(size(ROI))
+  vec1 = zeros(6)
+  vec1[1] = 1
+  vec2 = zeros(6)
+  vec2[2] = 1
+  for i in 1:size(ROI,1)
+    x_floor = convert(Array{Int,1}, floor(ROI[i,:]))
+    
+    c = F_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
+                pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]
+    df[i,1] = vec1' * QK * c * QK' * vec2
+    df[i,2] = vec2' * QK * c * QK' * vec1
+  end
+  return f
 end
 
 
-function SplineEvaluate(F, ROI)
-  placeholder = rand(size(ROI,1))
-
+function SplineEvaluate(F_coeff, ROI)
+  pad_size = 2
+  QK = [1/120  13/60  11/20  13/60  1/120  0;
+        -1/24  -5/12  0  5/12  1/24  0;
+        1/12  1/6  -1/2  1/6  1/12  0;
+        -1/12  1/6  0  -1/6  1/12  0;
+        1/24  -1/6 1/4  -1/6  1/24  0;
+        -1/120  1/24  -1/12  1/12  -1/24  1/120]
+  f = Array{float}(size(ROI, 1))
+  for i in 1:size(ROI,1)
+    x_floor = convert(Array{Int,1}, floor(ROI[i,:]))
+    dx, dy = ROI[i, :] - x_floor
+    dx_vec = [dx^n for i in 0:5]
+    dy_vec = [dy^n for i in 0:5]
+    
+    c = F_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
+                pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]
+    f[i] = dy_vec' * QK * c * QK' * dx_vec
+  end
+  return f
 end
