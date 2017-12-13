@@ -1,3 +1,8 @@
+using Plots
+plotly()
+
+include("QuinticBSpline.jl")
+
 
 function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   # notation:
@@ -11,26 +16,35 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   # f: intensity of ROI in undeformed image
   # g: intensity of ROI in deformed image
   # p: vector of deformations to be solved for
+  pad_size = 500
+  F_coeff = calc_B_coeffs(F, pad_size)
+  G_coeff = calc_B_coeffs(G, pad_size)
   
   ROIrelative = SquareRoiEvenSize(ROIsize)
-  df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative)
-  
-  f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6))
+  df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
+  f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
+  display(heatmap(reshape(f, ROIsize, ROIsize)))
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
-  p_old = [initial_guess_u[1], initial_guess_u[2], 0, 0, 0, 0]  
+  p_old = [initial_guess_u[1], initial_guess_u[2], .00, 0, 0, 0]  
   converged = false
   num_iterations = 0
-  
+  println("0: ", p_old)
   while !converged && num_iterations < 100
-    println(num_iterations)
     num_iterations += 1
-    g = EvaluateWarpedImage(G_coeff, ref_c, ROIrelative, p_old)
+    g = EvaluateWarpedImage(G_coeff, ref_c, ROIrelative, p_old, pad_size)
+    #if num_iterations == 10
+      #display(heatmap(reshape(g, ROIsize, ROIsize)))
+    #end
     g_m = mean(g)
+    C_ls = ComputeCorrelationCriteria(f, f_m, g, g_m)
     grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
-    dp = hess\(-grad)
+    dp = (hess\(-grad))
     p_old = UpdateP(p_old, dp)
-    converged = (norm(dp) < 1.0e-6)
+    #println("   dp: ", norm(dp), dp)
+    println(num_iterations, ": ", C_ls, "    ", norm(dp), "    ", p_old)
+    println("grad: ", grad)
+    converged = (norm(dp) < 1.0e-3)
   end
 
   println(p_old)
@@ -39,19 +53,20 @@ end
 
 
 function SquareRoiEvenSize(ROIsize)
-  ROIrelative = Array{Int}(ROIsize*ROIsize, 2)
+  ROIrelative = Array{Float64}(ROIsize*ROIsize, 2)
   count = 0
-  for i in ROIsize : ROIsize/2 - 1  
-    for i in ROIsize : ROIsize/2 - 1 
+  for i in -ROIsize/2 : ROIsize/2 - 1  
+    for j in -ROIsize/2 : ROIsize/2 - 1 
       count += 1
-      ROIrelative[count, :] = [i, j]
+      ROIrelative[count, 1] = i+0.5
+      ROIrelative[count, 2] = j+0.5
     end
   end
   return ROIrelative 
 end
 
 
-function GetSteepestDescentImages(F, ref_c, ROIrelative)
+function GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   # this function assumes x_ref_tilde = x_ref
   # ddp = [ddu, ddv, ddu_dx, ddu_dy, ddv_dx, ddv_dy]
   df_ddp = zeros(size(ROIrelative, 1), 6)
@@ -60,13 +75,23 @@ function GetSteepestDescentImages(F, ref_c, ROIrelative)
   #x = ROIrange + ref_c[1] + p[1] + p[3]*ROIrange + p[4]*ROIrange'
   #y = ROIrange' + ref_c[2] + p[2] + p[5]*ROIrange + p[6]*ROIrange'
   
-  df_dxy = SplineDerivative(F, ROI) # need to implement this function
+  df_dxy = SplineDerivative(F_coeff, ROI, pad_size)
   df_ddp[:, 1] = df_dxy[:, 1]
   df_ddp[:, 2] = df_dxy[:, 2]
   df_ddp[:, 3] = df_dxy[:, 1] .* ROIrelative[:, 1]
   df_ddp[:, 4] = df_dxy[:, 1] .* ROIrelative[:, 2]
   df_ddp[:, 5] = df_dxy[:, 2] .* ROIrelative[:, 1]
   df_ddp[:, 6] = df_dxy[:, 2] .* ROIrelative[:, 2]
+  
+  #display(heatmap(reshape(ROIrelative[:,1], 12,12), title="roix"))
+  #display(heatmap(reshape(ROIrelative[:,2], 12,12), title="roiy"))
+  #
+  #display(heatmap(reshape(df_ddp[:,1], 12,12), title="dfddu"))
+  #display(heatmap(reshape(df_ddp[:,2], 12,12), title="dfddv"))
+  #display(heatmap(reshape(df_ddp[:,3], 12,12), title="dfddudx"))
+  #display(heatmap(reshape(df_ddp[:,4], 12,12), title="dfddudy"))
+  #display(heatmap(reshape(df_ddp[:,5], 12,12), title="dfddvdx"))
+  #display(heatmap(reshape(df_ddp[:,6], 12,12), title="dfddvdy"))
   
   return df_ddp
 end
@@ -78,6 +103,7 @@ function ComputeHessian(f, f_m, df_ddp)
     hessian += df_ddp[i, :] * df_ddp[i, :]'
   end
   hessian *= 2.0 / sum((f-f_m).^2)
+  display(hessian)
   return factorize(hessian)
 end
 
@@ -86,11 +112,22 @@ function ComputeGradient(f, f_m, g, g_m, df_ddp)
   gradient = zeros(6)
   norm_f = sum((f-f_m).^2)^0.5 
   norm_g = sum((g-g_m).^2)^0.5 
-  for i in length(f)
+  for i in 1:length(f)
     gradient += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)* df_ddp[i, :]
   end
   gradient *= 2/norm_f 
   return gradient
+end
+
+
+function ComputeCorrelationCriteria(f, f_m, g, g_m)
+  norm_f = sum((f-f_m).^2)^0.5 
+  norm_g = sum((g-g_m).^2)^0.5 
+  C = 0
+  for i in 1:length(f)
+    C += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)^2
+  end
+  return C
 end
 
 
@@ -100,64 +137,61 @@ function UpdateP(p_old, dp)
            0  0  1]
   w_dp = [1+dp[3]  dp[4]  dp[1]; 
           dp[5]  1+dp[6]  dp[2];
-          0  0  1]
+          0  0  1]       
+  #w_old = [1+p_old[6]  p_old[5]  p_old[2]; 
+  #         p_old[4]  1+p_old[3]  p_old[1]; 
+  #         0  0  1]
+  #w_dp = [1+dp[6]  dp[5]  dp[2]; 
+  #        dp[4]  1+dp[3]  dp[1];
+  #        0  0  1]
   w_new = w_old*inv(w_dp)
   p_new = [w_new[1, 3], w_new[2, 3], w_new[1, 1] - 1, 
            w_new[1, 2], w_new[2, 1], w_new[2, 2] - 1]
+  #p_new = [w_new[2, 3], w_new[1, 3], w_new[2, 2] - 1, 
+  #         w_new[2, 1], w_new[1, 2], w_new[1, 1] - 1]
 end
 
 
-function EvaluateWarpedImage(F, ref_c, ROIrelative, p)
+function EvaluateWarpedImage(F, ref_c, ROIrelative, p, pad_size)
   ROI = ROIrelative .+ ref_c' .+ p[1:2]' + 
         ROIrelative .* p[[3, 5]]' +
         ROIrelative[:, [2, 1]] .* p[[4, 6]]'
-  return SplineEvaluate(F, ROI)
+  return SplineEvaluate(F, ROI, pad_size)
 end
 
 
-function SplineDerivative(F_coeff, ROI)
-  pad_size = 2
-  QK = [1/120  13/60  11/20  13/60  1/120  0;
-        -1/24  -5/12  0  5/12  1/24  0;
-        1/12  1/6  -1/2  1/6  1/12  0;
-        -1/12  1/6  0  -1/6  1/12  0;
-        1/24  -1/6 1/4  -1/6  1/24  0;
-        -1/120  1/24  -1/12  1/12  -1/24  1/120]
-  df = Array{float}(size(ROI))
-  vec1 = zeros(6)
-  vec1[1] = 1
-  vec2 = zeros(6)
-  vec2[2] = 1
-  for i in 1:size(ROI,1)
-    x_floor = convert(Array{Int,1}, floor(ROI[i,:]))
-    
-    c = F_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
-                pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]
-    df[i,1] = vec1' * QK * c * QK' * vec2
-    df[i,2] = vec2' * QK * c * QK' * vec1
+"""
+r = rand(49,49)
+for i = 1:49
+  for j = 1:49
+    r[i, j] = (i/50*j/50)^2 
   end
-  return f
 end
+"""
+
+F = ones(50, 50)
+F[11:16,11:16] = [1 1 1 1 1 1;1 .95 .35 .02 .24 .85;1 .49 0 0 0 .26;1 .41 0 0 0 .18;1 .84 .06 0 .01 .64;1 1 .92 .71 .87 1]
+F[11:16,11:16] = [1 1 1 1 1 1;
+                  1 .95 .85 .85 .95 1;
+                  1 .85 .6 .6 .85 1;
+                  1 .85 .6 .6 .85 1;
+                  1 .95 .85 .85 .95 1;
+                  1 1 1 1 1 1]
 
 
-function SplineEvaluate(F_coeff, ROI)
-  pad_size = 2
-  QK = [1/120  13/60  11/20  13/60  1/120  0;
-        -1/24  -5/12  0  5/12  1/24  0;
-        1/12  1/6  -1/2  1/6  1/12  0;
-        -1/12  1/6  0  -1/6  1/12  0;
-        1/24  -1/6 1/4  -1/6  1/24  0;
-        -1/120  1/24  -1/12  1/12  -1/24  1/120]
-  f = Array{float}(size(ROI, 1))
-  for i in 1:size(ROI,1)
-    x_floor = convert(Array{Int,1}, floor(ROI[i,:]))
-    dx, dy = ROI[i, :] - x_floor
-    dx_vec = [dx^n for i in 0:5]
-    dy_vec = [dy^n for i in 0:5]
-    
-    c = F_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
-                pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]
-    f[i] = dy_vec' * QK * c * QK' * dx_vec
-  end
-  return f
-end
+#F[1:49,1:49] = r
+
+G = ones(50, 50)
+#G[13:18,11:16] = [1 1 1 1 1 1;1 .95 .35 .02 .24 .85;1 .49 0 0 0 .26;1 .41 0 0 0 .18;1 .84 .06 0 .01 .64;1 1 .92 .71 .87 1]
+#G[2:50,1:49] = r
+tmp = EvaluateWarpedImage(calc_B_coeffs(F[8:19,8:19], 500), [6.5, 6.5], SquareRoiEvenSize(12), 
+                          [0,-0.5,0,0,0,0], 500)
+G[8:19,8:19] = reshape(tmp,12, 12)'
+
+display(heatmap(F'))
+display(heatmap(G'))
+
+RunIcgn(G, F, [15.5, 15.5], [0.0, 0.5], 12)
+
+
+
