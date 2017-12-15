@@ -11,7 +11,9 @@ ROIsize_px = 2*convert(Int64,m*ROIsize/200) #ROI forced to be even and square
 ccfilt = ccfilter(2,50, [ROIsize_px,ROIsize_px], 13)
 windowfunc = ccwindow(ROIsize_px)
 qerror = zeros(2,size(ROIs)[1])
+qerrorDIC = zeros(2,size(ROIs)[1])
 for i in 1:size(ROIs)[1]
+  println(i)
   ROI_px = m*ROIs[i,:]
 
   shiftROI_px = shift_estimate_simple(ROI_px,PD,PR, m)
@@ -22,11 +24,12 @@ for i in 1:size(ROIs)[1]
 
   thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
 
-  testq = RunIcgn(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px)
+  testq = RunIcgn(DefI, RefI, (round.(ROI_px) - [0.5;0.5]), trueq, ROIsize_px)
 
-  #println(thisq)
+  #println(trueq, thisq, testq)
   #println(" ")
   qerror[:,i] = thisq - [trueq[2], trueq[1]]
+  qerrorDIC[:,i] = testq - [trueq[2], trueq[1]]
 
 end
 #display(scatter(qerror[1,:],qerror[2,:]))
@@ -34,9 +37,14 @@ println("mean X error: ", mean(qerror[1,:]))
 println("mean Y error: ", mean(qerror[2,:]))
 println("std X error: ", std(qerror[1,:]))
 println("std Y error: ", std(qerror[2,:]))
+println("DIC mean X error: ", mean(qerrorDIC[1,:]))
+println("DIC mean Y error: ", mean(qerrorDIC[2,:]))
+println("DIC std X error: ", std(qerrorDIC[1,:]))
+println("DIC std Y error: ", std(qerrorDIC[2,:]))
 end
 
 function MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
+  
   rrange=round(Int,ROI_px[1]-ROIsize_px/2):round(Int,ROI_px[1]-ROIsize_px/2)+ROIsize_px-1
   crange=round(Int,ROI_px[2]-ROIsize_px/2):round(Int,ROI_px[2]-ROIsize_px/2)+ROIsize_px-1
 
@@ -150,7 +158,7 @@ PD = [.48046875;.518353371499725;.706680080924329] #x500y500
 #PD = [.5;.51835337;.70668008] #x0y500
 #PD = [0.498046875000000;0.501835337149973;0.700668008092433]#x50y50
 
-N = 2
+N = 24
 
 θs = 2*pi*collect(0:N-2)/(N-1)
 
