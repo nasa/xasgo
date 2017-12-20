@@ -21,7 +21,6 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   ROIrelative = SquareRoiEvenSize(ROIsize)
   df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
-  #display(heatmap(reshape(f, ROIsize, ROIsize)))
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
   p_old = [initial_guess_u[1], initial_guess_u[2], 0.0, 0, 0, 0]  
@@ -30,15 +29,10 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   while !converged && num_iterations < 20
     num_iterations += 1
     g = EvaluateWarpedImage(G_coeff, ref_c, ROIrelative, p_old, pad_size)
-    # display(heatmap(reshape(g, ROIsize, ROIsize)))
     g_m = mean(g) 
-    # C_ls = ComputeCorrelationCriteria(f, f_m, g, g_m)
     grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
     dp = (hess\(-grad))
     p_old = UpdateP(p_old, dp)
-    # println(num_iterations,": ", norm(dp))
-    # println(num_iterations, ": ", C_ls, "    ", norm(dp), "    ", p_old)
-    # println("grad: ", grad)
     converged = (norm(dp) < 1.0e-6)
   end
 
@@ -120,21 +114,11 @@ function UpdateP(p_old, dp)
            0  0  1]
   w_dp = [1+dp[3]  dp[4]  dp[1]; 
           dp[5]  1+dp[6]  dp[2];
-          0  0  1]       
-  #w_old = [1+p_old[6]  p_old[5]  p_old[2]; 
-  #         p_old[4]  1+p_old[3]  p_old[1]; 
-  #         0  0  1]
-  #w_dp = [1+dp[6]  dp[5]  dp[2]; 
-  #        dp[4]  1+dp[3]  dp[1];
-  #        0  0  1]
+          0  0  1]
   w_new = w_old*inv(w_dp)
   p_new = [w_new[1, 3], w_new[2, 3], w_new[1, 1] - 1, 
            w_new[1, 2], w_new[2, 1], w_new[2, 2] - 1]
-  #p_new = [w_new[2, 3], w_new[1, 3], w_new[2, 2] - 1, 
-  #         w_new[2, 1], w_new[1, 2], w_new[1, 1] - 1]
-  
-  #display(w_new)
-  #display(p_new)
+           
   return p_new
 end
 
@@ -223,31 +207,22 @@ function DICtest()
     plotly()
 
     FF = ones(50, 50)
-    #FF[11:16,11:16] = [1 1 1 1 1 1;1 .95 .35 .02 .24 .85;1 .49 0 0 0 .26;1 .41 0 0 0 .18;1 .84 .06 0 .01 .64;1 1 .92 .71 .87 1]
     FF[11:16,11:16] = [1 1 1 1 1 1;
                       1 .9 .7 .7 .9 1;
                       1 .7 .2 .2 .7 1;
                       1 .7 .2 .2 .7 1;
                       1 .9 .7 .7 .9 1;
                       1 1 1 1 1 1]
-
-
-    #F[1:49,1:49] = r
-
     GG = ones(50, 50)
-    #GG[13:18,11:16] = [1 1 1 1 1 1;1 .95 .35 .02 .24 .85;1 .49 0 0 0 .26;1 .41 0 0 0 .18;1 .84 .06 0 .01 .64;1 1 .92 .71 .87 1]
-    #GG[2:50,1:49] = r
     tmp = EvaluateWarpedImage(calc_B_coeffs(FF, 50), [15.5, 15.5], 
                               SquareRoiEvenSize(12), 
                               [0.00,0.0,0.,0,0.5,0], 50)
     GG[10:21,10:21] = reshape(tmp,12, 12)'
 
-
     #display(heatmap(FF'))
     #display(heatmap(GG'))
 
     RunIcgn(FF, GG, [15.5, 15.5], [0.0, 0.0], 12)
-
 
     p=zeros(6)
     println("---Gradient calc:")
