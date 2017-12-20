@@ -225,7 +225,7 @@ end
 
 
 #RefI = load("ZeroCamElevation_x0y0.png")
-RefI = load("D:\\XASGO\\al_ebsd\\set1\\ebsd_0.png")
+RefI = load(joinpath("al_ebsd","set1","ebsd_0.png"))
 RefI = squareimage(RefI)
 #display(heatmap(RefI))
 RefI = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},RefI)
@@ -235,7 +235,7 @@ RefI = filterimage(RefI,9,90,25)
 PR = [.5;.5;.625]
 
 #DefI = load("ZeroCamElevation_x500y500.png")
-DefI = load("D:\\XASGO\\al_ebsd\\set1\\ebsd_1.png")
+DefI = load(joinpath("al_ebsd","set1","ebsd_1.png"))
 DefI = squareimage(DefI)
 DefI = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},DefI)
 DefI = convert(Array{Float64},DefI)
