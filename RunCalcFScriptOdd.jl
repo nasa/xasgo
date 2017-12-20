@@ -12,6 +12,7 @@ ccfilt = ccfilter(2,50, [ROIsize_px,ROIsize_px], 13)
 windowfunc = ccwindow(ROIsize_px)
 qerror = zeros(2,size(ROIs)[1])
 qerrorDIC = zeros(2,size(ROIs)[1])
+q_guess = []
 for i in 1:size(ROIs)[1]
   println(i)
   ROI_px = m*ROIs[i,:]
@@ -24,7 +25,11 @@ for i in 1:size(ROIs)[1]
 
   thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
 
-  testq = RunIcgn(DefI, RefI, (round.(ROI_px) - [0.5;0.5]), trueq, ROIsize_px)
+  if i == 1
+     q_guess = [trueq[2], trueq[1]]
+  end
+  testq = RunIcgn(DefI, RefI, (round.(ROI_px) - [0.5;0.5]), q_guess, ROIsize_px)
+  q_guess = testq
 
   #println(trueq, thisq, testq)
   #println(" ")

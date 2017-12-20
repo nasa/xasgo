@@ -23,7 +23,7 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
-  p_old = [initial_guess_u[1], initial_guess_u[2], 0.0, 0, 0, 0]  
+  p_old = TranslateInitialGuess(initial_guess_u) 
   converged = false
   num_iterations = 0
   while !converged && num_iterations < 20
@@ -37,6 +37,15 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   end
 
   return p_old[[1, 2]]
+end
+
+
+function TranslateInitialGuess(initial_guess)
+  p = zeros(6)
+  for i in 1 : min(6, length(initial_guess))
+    p[i] = initial_guess[i]
+  end
+  return p
 end
 
 
