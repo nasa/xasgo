@@ -8,7 +8,7 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   # G: intensity of entire deformed image
   # F_coeff: biquintic spline coefficients of entire undeformed image
   # G_coeff: biquintic spline coefficients of entire deformed image
-  # ROI: region of interest (nx2 array of x,y locations) 
+  # ROI: region of interest (nx2 array of x,y locations)
   # ROIrelative: region of interest described relative to center of ROI
   # ref_c: [x, y] location of center of ROI in reference image
   # f: intensity of ROI in undeformed image
@@ -17,26 +17,26 @@ function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)
   pad_size = 50
   F_coeff = calc_B_coeffs(F, pad_size)
   G_coeff = calc_B_coeffs(G, pad_size)
-  
+
   ROIrelative = SquareRoiEvenSize(ROIsize)
   df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
-  p_old = TranslateInitialGuess(initial_guess_u) 
+  p_old = TranslateInitialGuess(initial_guess_u)
   converged = false
   num_iterations = 0
   while !converged && num_iterations < 20
     num_iterations += 1
     g = EvaluateWarpedImage(G_coeff, ref_c, ROIrelative, p_old, pad_size)
-    g_m = mean(g) 
+    g_m = mean(g)
     grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
     dp = (hess\(-grad))
     p_old = UpdateP(p_old, dp)
     converged = (norm(dp) < 1.0e-6)
   end
 
-  return p_old[[1, 2]]
+  return p_old
 end
 
 
@@ -52,14 +52,14 @@ end
 function SquareRoiEvenSize(ROIsize)
   ROIrelative = Array{Float64}(ROIsize*ROIsize, 2)
   count = 0
-  for i in -ROIsize/2 : ROIsize/2 - 1  
-    for j in -ROIsize/2 : ROIsize/2 - 1 
+  for i in -ROIsize/2 : ROIsize/2 - 1
+    for j in -ROIsize/2 : ROIsize/2 - 1
       count += 1
       ROIrelative[count, 1] = i+0.5
       ROIrelative[count, 2] = j+0.5
     end
   end
-  return ROIrelative 
+  return ROIrelative
 end
 
 
@@ -67,11 +67,11 @@ function GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   # this function assumes x_ref_tilde = x_ref
   # ddp = [ddu, ddv, ddu_dx, ddu_dy, ddv_dx, ddv_dy]
   df_ddp = zeros(size(ROIrelative, 1), 6)
-  
-  ROI = ROIrelative .+ ref_c' 
+
+  ROI = ROIrelative .+ ref_c'
   #x = ROIrange + ref_c[1] + p[1] + p[3]*ROIrange + p[4]*ROIrange'
   #y = ROIrange' + ref_c[2] + p[2] + p[5]*ROIrange + p[6]*ROIrange'
-  
+
   df_dxy = SplineDerivative(F_coeff, ROI, pad_size)
   df_ddp[:, 1] = copy(df_dxy[:, 1])
   df_ddp[:, 2] = copy(df_dxy[:, 2])
@@ -79,7 +79,7 @@ function GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   df_ddp[:, 4] = df_dxy[:, 1] .* ROIrelative[:, 2]
   df_ddp[:, 5] = df_dxy[:, 2] .* ROIrelative[:, 1]
   df_ddp[:, 6] = df_dxy[:, 2] .* ROIrelative[:, 2]
-  
+
   return df_ddp
 end
 
@@ -96,19 +96,19 @@ end
 
 function ComputeGradient(f, f_m, g, g_m, df_ddp)
   gradient = zeros(6)
-  norm_f = sum((f-f_m).^2)^0.5 
-  norm_g = sum((g-g_m).^2)^0.5 
+  norm_f = sum((f-f_m).^2)^0.5
+  norm_g = sum((g-g_m).^2)^0.5
   for i in 1:length(f)
     gradient += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)* df_ddp[i, :]
   end
-  gradient *= 2/norm_f 
+  gradient *= 2/norm_f
   return gradient
 end
 
 
 function ComputeCorrelationCriteria(f, f_m, g, g_m)
-  norm_f = sum((f-f_m).^2)^0.5 
-  norm_g = sum((g-g_m).^2)^0.5 
+  norm_f = sum((f-f_m).^2)^0.5
+  norm_g = sum((g-g_m).^2)^0.5
   C = 0
   for i in 1:length(f)
     C += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)^2
@@ -118,22 +118,22 @@ end
 
 
 function UpdateP(p_old, dp)
-  w_old = [1+p_old[3]  p_old[4]  p_old[1]; 
-           p_old[5]  1+p_old[6]  p_old[2]; 
+  w_old = [1+p_old[3]  p_old[4]  p_old[1];
+           p_old[5]  1+p_old[6]  p_old[2];
            0  0  1]
-  w_dp = [1+dp[3]  dp[4]  dp[1]; 
+  w_dp = [1+dp[3]  dp[4]  dp[1];
           dp[5]  1+dp[6]  dp[2];
           0  0  1]
   w_new = w_old*inv(w_dp)
-  p_new = [w_new[1, 3], w_new[2, 3], w_new[1, 1] - 1, 
+  p_new = [w_new[1, 3], w_new[2, 3], w_new[1, 1] - 1,
            w_new[1, 2], w_new[2, 1], w_new[2, 2] - 1]
-           
+
   return p_new
 end
 
 
 function EvaluateWarpedImage(F, ref_c, ROIrelative, p, pad_size)
-  ROI = ROIrelative .+ ref_c' .+ p[1:2]' + 
+  ROI = ROIrelative .+ ref_c' .+ p[1:2]' +
         ROIrelative .* p[[3, 6]]' +
         ROIrelative[:, [2, 1]] .* p[[4, 5]]'
   return SplineEvaluate(F, ROI, pad_size)
@@ -144,7 +144,7 @@ function TestGradient(G, F, ref_c, p_old, ROIsize)
   pad_size = 50
   F_coeff = calc_B_coeffs(F, pad_size)
   G_coeff = calc_B_coeffs(G, pad_size)
-  
+
   ROIrelative = SquareRoiEvenSize(ROIsize)
   df_ddp = GetSteepestDescentImages(F_coeff, ref_c, ROIrelative, pad_size)
   f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
@@ -159,7 +159,7 @@ function TestCorrelation(G, F, ref_c, p_old, ROIsize)
   pad_size = 50
   F_coeff = calc_B_coeffs(F, pad_size)
   G_coeff = calc_B_coeffs(G, pad_size)
-  
+
   ROIrelative = SquareRoiEvenSize(ROIsize)
   f = EvaluateWarpedImage(F_coeff, ref_c, ROIrelative, zeros(6), pad_size)
   f_m = mean(f)
@@ -223,8 +223,8 @@ function DICtest()
                       1 .9 .7 .7 .9 1;
                       1 1 1 1 1 1]
     GG = ones(50, 50)
-    tmp = EvaluateWarpedImage(calc_B_coeffs(FF, 50), [15.5, 15.5], 
-                              SquareRoiEvenSize(12), 
+    tmp = EvaluateWarpedImage(calc_B_coeffs(FF, 50), [15.5, 15.5],
+                              SquareRoiEvenSize(12),
                               [0.00,0.0,0.,0,0.5,0], 50)
     GG[10:21,10:21] = reshape(tmp,12, 12)'
 
@@ -264,5 +264,3 @@ function DICtest()
     display(heatmap(FiniteDiffdfddp(F, [15.5, 15.5], 2, 1e-8)))
     =#
 end
-
-
