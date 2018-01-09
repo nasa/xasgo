@@ -1,264 +1,115 @@
 using Images, Colors, FixedPointNumbers, Plots
 using FFTW
+using JuMP
+using NLopt
+using Ipopt
+
 include("DIC.jl")
+include("XASGOSupport.jl")
 plotly()
 
-function CalcF(ROIs, ROIsize, DefI, PD, RefI, PR)
+function CalcF(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess)
 
 m = minimum(size(DefI))  # smallest dimension of image
-#qs = zeros(size(ROIs))
 ROIsize_px = 2*round(Int64,m*ROIsize/200) #ROI forced to be even and square
-ccfilt = ccfilter(2,50, [ROIsize_px,ROIsize_px], 13)
+ccfilt = ccfilter(2,50, [ROIsize_px,ROIsize_px], 13) #filter masks computed only once
 windowfunc = ccwindow(ROIsize_px)
 qerror = zeros(2,size(ROIs)[1])
-qerrorDIC = zeros(2,size(ROIs)[1])
-q_guess = []
-qs = zeros(2,size(ROIs)[1])
-q2s = zeros(2,size(ROIs)[1])
+qs = zeros(3,size(ROIs)[1])
 rs = zeros(3,size(ROIs)[1])
-pppsum = zeros(6)
+
+PD_p_px = PC_to_phosphor_frame(PD,m)
+PR_p_px = PC_to_phosphor_frame(PR,m)
 for i in 1:size(ROIs)[1]
-  println(i)
-  ROI_px = m*ROIs[i,:]
+  #display(i)
+  ROI_px = round.(m*ROIs[i,:] + [.5,.5]) -  [.5,.5]
+  #ROI_px = round.(m*ROIs[i,:])
 
-  shiftROI_px = shift_estimate_simple(ROI_px,PD,PR, m)
+  ROI_p_px = image_vec_to_phosphor_frame(ROI_px)
 
-  trueq = shiftROI_px - (round.([ROI_px[2];ROI_px[1]]) - [0.5;0.5])
-  truepeak = [trueq[2];trueq[1]] + [ROIsize_px+1,ROIsize_px+1]
-  #println([trueq[2], trueq[1]])
+  r_p = ROI_p_px - PR_p_px
 
-  thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
+  shiftROI_px = offset_estimate_w_F(r_p,PD_p_px,PR_p_px,F_guess) + ROI_px
 
-  ppp = RunIcgn(DefI, RefI, (round.(ROI_px) - [0.5;0.5]), [trueq[2],trueq[1]], ROIsize_px)
-  display(ppp)
-  testq = ppp[1:2]
+  trueq = shiftROI_px - ROI_px
 
-  pppsum += ppp
+  #thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
 
-  #println(trueq, thisq, testq)
-  #println(" ")
-  qerror[:,i] = thisq - [trueq[2], trueq[1]]
-  qerrorDIC[:,i] = testq - [trueq[2], trueq[1]]
+  ppp = RunIcgn(DefI, RefI, ROI_px, trueq, ROIsize_px)
+  thisq = ppp[1:2]
 
-  qstar = reverse_shift(thisq,ROI_px,PD,PR, m) #reverse_shift, shift_estimate_simple and the r calc below share a lot of calcs
+  qerror[:,i] = thisq - trueq
 
-  qstarDIC = reverse_shift(testq,ROI_px,PD,PR, m)
+  if norm(thisq-trueq) > 4
+    display(i)
+    Plot_ROI(RefI, ROI_px, ROIsize_px)
+    PlotCC(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
+  end
 
-  qs[:,i] = [qstar[2], qstar[1]]/m
-  q2s[:,i] = [qstarDIC[2], qstarDIC[1]]/m
-  Qvp=[-1 0 0; 0 -1 0; 0 0 1]
-  rs[:,i] = (Qvp*(round.([ROI_px[2]; ROI_px[1]; 0]) - [0.5; 0.5; 0.]) + m*[PR[1]; 1-PR[2]; -PR[3]])/m
+  qstar_p = reverse_PC_offset(thisq, r_p, PD_p_px, PR_p_px)
 
+  qs[:,i] = qstar_p/m #Why does this fail if I take out the /m?
+  rs[:,i] = r_p/m
 end
 
-println(pppsum/size(ROIs)[1])
-#display(scatter(qerror[1,:],qerror[2,:]))
 println("mean X error: ", mean(qerror[1,:]))
 println("mean Y error: ", mean(qerror[2,:]))
 println("std X error: ", std(qerror[1,:]))
 println("std Y error: ", std(qerror[2,:]))
-println("DIC mean X error: ", mean(qerrorDIC[1,:]))
-println("DIC mean Y error: ", mean(qerrorDIC[2,:]))
-println("DIC std X error: ", std(qerrorDIC[1,:]))
-println("DIC std Y error: ", std(qerrorDIC[2,:]))
 
 β = beta_calc_Ruggles(qs,rs)
+β = VR_deviatoric(β+eye(3)) - eye(3)
 
-display(β)
-
-β2 = beta_calc_Ruggles(q2s,rs)
-
-display(β2)
-
-display(β2./β)
-
-display(norm(β))
-display(norm(β2))
-
-display(180*acos((trace(β)+2)/2)/pi)
-display(180*acos((trace(β2)+2)/2)/pi)
-
-#display(det((β+eye(3))*(β'+eye(3))))
-#display(det((β2+eye(3))*(β2'+eye(3))))
-
-return β2
+#display(plot(qerror[1,:],qerror[2,:]))
+#display(scatter3d(ROIs[:,1],ROIs[:,2],qerror[1,:]))
+#display(scatter3d(ROIs[:,1],ROIs[:,2],qerror[2,:]))
+return β
 
 end
 
-function beta_calc_Ruggles(qs,rs)
-  r1 = rs[1,:]
-  r2 = rs[2,:]
-  r3 = rs[3,:] #r3 is just a constant times a vector of ones...that's a wee bit silly
-  q1 = qs[1,:]
-  q2 = qs[2,:]
-  zerovec = zeros(size(r1))
-
-  A1 = [r1.*r3 r2.*r3 r3.*r3 zerovec zerovec zerovec -(r1.*r1 + q1.*r1) -(r1.*r2 + q1.*r2) -(r1.*r3 + q1.*r3)]
-  A2 = [zerovec zerovec zerovec r1.*r3 r2.*r3 r3.*r3 -(r2.*r1 + q2.*r1) -(r2.*r2 + q2.*r2) -(r2.*r3 + q2.*r3)]
-  b1 = q1.*r3;
-  b2 = q2.*r3;
-
-  b3 = 0
-  A3 = [1 0 0 0 1 0 0 0 1]
-
-  A = [A1;A2;A3]
-  b = [b1;b2;b3]
-
-  X = A\b
-  β = [X[1] X[2] X[3];X[4] X[5] X[6];X[7] X[8] X[9]]
-end
-
-function MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
-
-  rrange=round(Int,ROI_px[1]-ROIsize_px/2):round(Int,ROI_px[1]-ROIsize_px/2)+ROIsize_px-1
-  crange=round(Int,ROI_px[2]-ROIsize_px/2):round(Int,ROI_px[2]-ROIsize_px/2)+ROIsize_px-1
-
-  srrange=round(Int,shiftROI_px[2] - ROIsize_px/2):round(Int,shiftROI_px[2] - ROIsize_px/2)+ROIsize_px-1
-  scrange=round(Int,shiftROI_px[1] - ROIsize_px/2):round(Int,shiftROI_px[1] - ROIsize_px/2)+ROIsize_px-1
-
-  DROI = DefI[srrange,scrange]
-  RROI = RefI[rrange,crange]
-
-  FD = rfft(windowfunc.*DROI)
-  FR = rfft(windowfunc.*RROI)#windowfunc.*
-
-  CC = fftshift(brfft(ccfilt[1:round(Int,ROIsize_px/2)+1,:].*FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
-
-  q = findpeak2(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIsize_px/2 - 1
-end
-
-function shift_estimate_simple(ROI_px, PD, PR, m)
-  Qvp=[-1 0 0; 0 -1 0; 0 0 1]
-  r = Qvp*(round.([ROI_px[2]; ROI_px[1]; 0]) - [0.5; 0.5; 0.]) + m*[PR[1]; 1-PR[2]; -PR[3]]
-  δP = PD - PR
-  δP = m*[-δP[1];δP[2];δP[3]]
-  shiftROI3D = Qvp'*(-m*[PR[1];1-PR[2];-PR[3]] + δP + r*PD[3]/PR[3])
-  shiftROI_px = [shiftROI3D[1];shiftROI3D[2]]
-end
-
-function reverse_shift(thisq,ROI_px,PD,PR, m)
-  Qvp=[-1 0 0; 0 -1 0; 0 0 1]
-  r = Qvp*(round.([ROI_px[2]; ROI_px[1]; 0]) - [0.5; 0.5; 0.]) + m*[PR[1]; 1-PR[2]; -PR[3]]
-  δP = PD - PR
-  δP = m*[-δP[1];δP[2];δP[3]]
-  ddratio = PR[3]/PD[3]
-  ph = (-[thisq[2], thisq[1]]-δP[1:2])*ddratio - r[1:2]*(1-ddratio)
-  qstar = [ph[2],ph[1]]
-end
-
-function findpeak(A)
-  mn = size(A)
-  maxdat = findmax(A)
-  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
-  X = [1 -1 1;1 0 0;1 1 1]
-  xs = [A[xyind[1]-1,xyind[2]],A[xyind[1],xyind[2]],A[xyind[1]+1,xyind[2]]]
-  ys = [A[xyind[1],xyind[2]-1],A[xyind[1],xyind[2]],A[xyind[1],xyind[2]+1]]
-  Bx = X\xs
-  By = X\ys
-  fittedpeak = xyind -.5*[Bx[2]/Bx[3],By[2]/By[3]]
-  return fittedpeak
-end
-
-function findpeak2(A)
-  mn = size(A)
-  maxdat = findmax(A)
-  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
-  X = [1 -1 -1 1 1 1;
-        1 -1 0 0 1 0;
-        1 -1 1 -1 1 1;
-        1 0 -1 0 0 1;
-        1 0 0 0 0 0;
-        1 0 1 0 0 1;
-        1 1 -1 -1 1 1;
-        1 1 0 0 1 0;
-        1 1 1 1 1 1]
-  count = 0;
-  V = zeros(9,1)
-  for i in -1:1
-    for j in -1:1
-      count = count + 1
-      V[count] = A[xyind[1] + i, xyind[2] + j]
-    end
-  end
-  C = X\V
-  denom = 4*C[6]*C[5] - C[4]*C[4]
-  fittedpeak = xyind + [C[4]*C[3] - 2.*C[6]*C[2],C[4]*C[2] - 2.*C[5]*C[3]]/denom
-end
-
-function ccfilter(lb,ub, mn, smooth)
-  ccfilt = zeros(mn[1],mn[2])
-  mid = round(Int,(mn[1]+1.001)/2)
-  for i in 1:mn[1]
-    for j in 1:mn[2]
-      dist = sqrt((i-mid)^2 + (j-mid)^2)
-      ccfilt[i,j] = 0.0*(dist>(ub+smooth)) + erfc(pi*(dist-ub)/smooth)*((ub+smooth)>=dist>ub) + 1.0*(ub>=dist>lb) + erfc(-pi*(dist-lb)/smooth)*(lb>=dist>lb-smooth)
-    end
-  end
-  ccfilt[mid,mid] = 0.0
-  ccfilt = fftshift(ccfilt)
-end
-
-function filterimage(I,lb,ub,smooth)
-  mn = size(I)
-  filt = ccfilter(lb,ub,mn,smooth)
-  I = irfft(filt[1:round(Int,mn[1]/2)+1,:].*rfft(I),mn[1])
-  return I
-end
-
-function ccwindow(L)
-  D = zeros(L,L)
-  for i=1:L
-    for j=1:L
-      D[i,j] = i;
-    end
-  end
-  mid = (L+1)/2
-  windowfunc = cos.((D-mid)*pi/L).*cos.((D'-mid)*pi/L)
-  return windowfunc
-end
-
-function squareimage(I)
-  mn = size(I)
-  buffer = round(Int64,(mn[2] - mn[1])/2)
-  I_square = I[:,buffer+1:buffer+mn[1]]
-end
-
-
-#RefI = load("ZeroCamElevation_x0y0.png")
-RefI = load("D:\\XASGO\\al_ebsd\\set1\\ebsd_0.png")
-RefI = squareimage(RefI)
-#display(heatmap(RefI))
-RefI = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},RefI)
-RefI = convert(Array{Float64},RefI)
-RefI = filterimage(RefI,9,90,25)
+#RefI = prep_ebsp("ZeroCamElevation_x0y0.png")
+RefI = prep_ebsp("D:\\XASGO\\al_ebsd\\set1\\ebsd_0.png")
 #PR = [.5;.5;.7]
 PR = [.5;.5;.625]
+#gR = eye(3)
+gR = euler_to_gmat(pi/12,pi/18,0)
 
-#DefI = load("ZeroCamElevation_x500y500.png")
-DefI = load("D:\\XASGO\\al_ebsd\\set1\\ebsd_1.png")
-DefI = squareimage(DefI)
-DefI = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},DefI)
-DefI = convert(Array{Float64},DefI)
-DefI = filterimage(DefI,9,90,25)
+#DefI = prep_ebsp("ZeroCamElevation_x500y500.png")
+DefI = prep_ebsp("D:\\XASGO\\al_ebsd\\set1\\ebsd_2.png")
 #PD = [.48046875;.518353371499725;.706680080924329] #x500y500
 #PD = [.5;.51835337;.70668008] #x0y500
 #PD = [0.498046875000000;0.501835337149973;0.700668008092433]#x50y50
 PD = [.5;.5;.625]
+#gD = eye(3)
+gD = euler_to_gmat(pi/12,pi/18,8*pi/180)
 
-N = 48
-
+N = 25
 θs = 2*pi*collect(0:N-2)/(N-1)
-
 ROIsize = 25
 rad = .25
-
 ROIs = Array{Float64}(N,2)
 ROIs[1,:] = [.5 .5]
 for i=2:N
   ROIs[i,:] = [.5 .5] + rad*[sin(θs[i-1]) cos(θs[i-1])]
 end
 
+F_guess = Qps'*gD'*gR*Qps - eye(3)
 
-F = CalcF(ROIs, ROIsize, DefI, PD, RefI, PR)
+α = pi/2 - 7*pi/18 + pi/18
+Qps=[0 cos(α) -sin(α);
+        -1     0            0;
+        0   -sin(α) -cos(α)]
+
+F = CalcF(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess+eye(3))
+
+display(F)
+
+display(F_guess)
+
+display(1e6*(F_guess - F))
+
+display(100*(F_guess - F)./F_guess)
+
+display(norm(F_guess - F))
 
 println("Done")
