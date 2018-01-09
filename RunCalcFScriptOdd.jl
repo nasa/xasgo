@@ -68,14 +68,14 @@ return β
 end
 
 #RefI = prep_ebsp("ZeroCamElevation_x0y0.png")
-RefI = prep_ebsp("D:\\XASGO\\al_ebsd\\set1\\ebsd_0.png")
+RefI = prep_ebsp(joinpath("al_ebsd","set1","ebsd_0.png"))
 #PR = [.5;.5;.7]
 PR = [.5;.5;.625]
 #gR = eye(3)
 gR = euler_to_gmat(pi/12,pi/18,0)
 
 #DefI = prep_ebsp("ZeroCamElevation_x500y500.png")
-DefI = prep_ebsp("D:\\XASGO\\al_ebsd\\set1\\ebsd_2.png")
+DefI = prep_ebsp(joinpath("al_ebsd","set1","ebsd_2.png"))
 #PD = [.48046875;.518353371499725;.706680080924329] #x500y500
 #PD = [.5;.51835337;.70668008] #x0y500
 #PD = [0.498046875000000;0.501835337149973;0.700668008092433]#x50y50
