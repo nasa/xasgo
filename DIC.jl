@@ -85,7 +85,8 @@ end
 
 
 function ComputeHessian(f, f_m, df_ddp)
-  hessian = zeros(6,6)
+  len_p = size(df_ddp,2)
+  hessian = zeros(len_p,len_p)
   for i in 1:length(f)
     hessian += df_ddp[i, :] * df_ddp[i, :]'
   end
@@ -95,7 +96,8 @@ end
 
 
 function ComputeGradient(f, f_m, g, g_m, df_ddp)
-  gradient = zeros(6)
+  len_p = size(df_ddp,2)
+  gradient = zeros(len_p)
   norm_f = sum((f-f_m).^2)^0.5
   norm_g = sum((g-g_m).^2)^0.5
   for i in 1:length(f)

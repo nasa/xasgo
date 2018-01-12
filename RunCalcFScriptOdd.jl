@@ -5,6 +5,7 @@ using NLopt
 using Ipopt
 
 include("DIC.jl")
+include("DICPatternDistortion.jl")
 include("XASGOSupport.jl")
 plotly()
 
@@ -67,6 +68,21 @@ return β
 
 end
 
+function CalcFPD(ROICenter, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess)
+  m = minimum(size(DefI))
+  ROIsize_px = 2*round(Int64,m*ROIsize/200)
+  ROICenter_px = round.(m*ROICenter + [.5,.5]) -  [.5,.5]
+  PD_p_px = PC_to_phosphor_frame(PD,m)
+  PR_p_px = PC_to_phosphor_frame(PR,m)
+  Δ_p_px =  PD_p_px - PR_p_px
+  DD = PR_p_px[3]
+  P_ivec = phosphor_frame_to_image_vec(PR_p_px)
+  ΔDD = Δ_p_px[3]
+  Δ_ivec = phosphor_frame_to_image_vec(Δ_p_px)
+  Fvec = RunIcgnPatternDistortion(DefI, RefI, ROICenter_px, mattovec(F_guess), ROIsize_px, P_ivec, DD, Δ_ivec, ΔDD)
+  β = vectomat(Fvec) - eye(3)
+end
+
 #RefI = prep_ebsp("ZeroCamElevation_x0y0.png")
 RefI = prep_ebsp(joinpath("al_ebsd","set1","ebsd_0.png"))
 #PR = [.5;.5;.7]
@@ -100,7 +116,9 @@ Qps=[0 cos(α) -sin(α);
         -1     0            0;
         0   -sin(α) -cos(α)]
 
-F = CalcF(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess+eye(3))
+#F = CalcF(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess+eye(3))
+
+F = CalcFPD([.5,.5], ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess)
 
 display(F)
 
