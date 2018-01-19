@@ -91,6 +91,7 @@ function ComputeHessian(f, f_m, df_ddp)
     hessian += df_ddp[i, :] * df_ddp[i, :]'
   end
   hessian *= 2.0 / sum((f-f_m).^2)
+  #display((svd(hessian)[2]))
   return factorize(hessian)
 end
 

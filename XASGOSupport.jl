@@ -290,6 +290,16 @@ function phosphor_frame_to_image_vec(Pv)
   Iv = [-Pv[2],-Pv[1]]
 end
 
+function rotate_to_image_frame(Mp)
+  Qfix = [0 -1 0;-1 0 0;0 0 1]
+  Mi = Qfix*Mp*(Qfix')
+end
+
+function rotate_to_phosframe_from_image(Mi)
+  Qfix = [0 -1 0;-1 0 0;0 0 1]
+  Mp = (Qfix')*Mi*Qfix
+end
+
 function PC_to_phosphor_frame(P,m)
   P_p = -m*[P[1]; 1-P[2]; -P[3]]
 end

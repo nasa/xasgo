@@ -62,7 +62,7 @@ function SplineEvaluate(B_coeff, ROI, pad_size)
     dx, dy = ROI[i, :] - x_floor
     dx_vec = [dx^n for n in 0:5]
     dy_vec = [dy^n for n in 0:5]
-    
+
     c = B_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
                 pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]'
     f[i] = dy_vec' * QK * c * QK' * dx_vec
@@ -80,7 +80,7 @@ function SplineDerivative(B_coeff, ROI, pad_size)
   vec2[2] = 1
   for i in 1:size(ROI,1)
     x_floor = convert(Array{Int,1}, floor.(ROI[i,:]))
-    
+
     c = B_coeff[pad_size + x_floor[1]-2:pad_size + x_floor[1] + 3,
                 pad_size + x_floor[2]-2:pad_size + x_floor[2] + 3]'
     df[i,1] = vec1' * QK * c * QK' * vec2
@@ -116,7 +116,7 @@ function TestSplineIntepolation()
     AbigX = zeros(size(A))
     AbigY = zeros(size(A))
     for i=1:size(A, 1) - 1
-      for j=1:size(A, 2) - 1 
+      for j=1:size(A, 2) - 1
         for k=0:9
           for l=0:9
             Abig[i*10+k,j*10+l] = SplineEvaluate(B, [i+k/10 j+l/10], pad_size)[1]
@@ -138,4 +138,3 @@ function TestSplineIntepolation()
     display(heatmap(AbigX[1:end-1, 1:end-1]', title="dx"))
     display(heatmap(AbigY[1:end-1, 1:end-1]', title="dy"))
 end
-
