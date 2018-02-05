@@ -145,7 +145,7 @@ function VR_deviatoric(A)
   return (eye(3) + VR[1] - trace(VR[1])*eye(3)/3.)*VR[2]
 end
 
-function beta_calc_Ruggles(qs,rs)
+function beta_calc_Ruggles(qs,rs, robust_e)
   r1 = rs[1,:]
   r2 = rs[2,:]
   r3 = rs[3,:] #r3 is just a constant times a vector of ones...that's a wee bit silly
@@ -163,8 +163,49 @@ function beta_calc_Ruggles(qs,rs)
 
   A = [A1;A2;A3]
   b = [b1;b2;b3]
+  if robust_e
+    X = RobustLS(A,b)
+  else
+    X = A\b
+  end
+
+  β = [X[1] X[2] X[3];X[4] X[5] X[6];X[7] X[8] X[9]]
+end
+
+function beta_calc_Landon(qs,rs)
+  rps = zeros(size(rs))
+  for i=1:size(qs,2)
+    #display(size([qs[:,i], 0]))
+    #display(size(rs[:,i]))
+    thisrp = [qs[1,i], qs[2,i],0] + rs[:,i]
+    thisrp = thisrp/norm(thisrp)
+    rps[:,i] = thisrp
+  end
+  r1 = rs[1,:]
+  r2 = rs[2,:]
+  r3 = rs[3,:] #r3 is just a constant times a vector of ones...that's a wee bit silly
+  q1 = qs[1,:]
+  q2 = qs[2,:]
+  q3 = zeros(size(q1))
+  rp1 = rps[1,:]
+  rp2 = rps[2,:]
+  rp3 = rps[3,:]
+
+  A1 = [r1.*rp1.*rp1-r1 r2.*rp1.*rp1-r2 r3.*rp1.*rp1-r3 r1.*rp2.*rp1 r2.*rp2.*rp1 r3.*rp2.*rp1 r1.*rp3.*rp1 r2.*rp3.*rp1 r3.*rp3.*rp1]
+  A2 = [r1.*rp1.*rp2 r2.*rp1.*rp2 r3.*rp1.*rp2 r1.*rp2.*rp2-r1 r2.*rp2.*rp2-r2 r3.*rp2.*rp2-r3 r1.*rp3.*rp2 r2.*rp3.*rp2 r3.*rp3.*rp2]
+  A3 = [r1.*rp1.*rp3 r2.*rp1.*rp3 r3.*rp1.*rp3 r1.*rp2.*rp3 r2.*rp2.*rp3 r3.*rp2.*rp3 r1.*rp3.*rp3-r1 r2.*rp3.*rp3-r2 r3.*rp3.*rp3-r3]
+  b1 = -q1+(q1.*rp1+q2.*rp2+q3.*rp3).*rp1
+  b2 = -q2+(q1.*rp1+q2.*rp2+q3.*rp3).*rp2
+  b3 = -q3+(q1.*rp1+q2.*rp2+q3.*rp3).*rp3
+
+  b4 = 0
+  A4 = [1 0 0 0 1 0 0 0 1]
+
+  A = [A1;A2;A3;A4]
+  b = [b1;b2;b3;b4]
 
   X = A\b
+  #X = RobustLS(A,b)
   β = [X[1] X[2] X[3];X[4] X[5] X[6];X[7] X[8] X[9]]
 end
 
@@ -274,10 +315,10 @@ function PlotCC(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px, windowfunc, ccfilt)
   DROI = DefI[srrange,scrange]
   RROI = RefI[rrange,crange]
 
-  FD = rfft(DROI)
-  FR = rfft(RROI)#windowfunc.*
+  FD = rfft(windowfunc.*DROI)
+  FR = rfft(windowfunc.*RROI)#windowfunc.*
 
-  CC = fftshift(brfft(FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
+  CC = fftshift(brfft(ccfilt[1:round(Int,ROIsize_px/2)+1,:].*FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
 
   display(heatmap(CC))
 end
@@ -329,4 +370,161 @@ function prep_ebsp(filepath)
   I = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},I)
   I = convert(Array{Float64},I)
   I = filterimage(I,9,90,25)
+end
+
+function AnnularROI(C, Ri, Ro, m)
+  C = round.(Int,C)
+  Ro2 = Ro*Ro
+  Ri2 = Ri*Ri
+  count = 0
+  ROI = round.(Int,zeros(ceil(Int,1.1*pi*(Ro2-Ri2))+1,2))
+  for i = floor(Int,C[1] - Ro):ceil(Int,C[1] + Ro)
+    i2 = (i-C[1])*(i-C[1])
+    for j = floor(Int,C[2] - Ro):ceil(Int,C[2] + Ro)
+      r2 = (i2 + (j-C[2])*(j-C[2]))
+      if Ro2 > r2 > Ri2
+        count +=1
+        ROI[count,1] = i
+        ROI[count,2] = j
+      end
+    end
+  end
+  return ROI[1:count,:]
+end
+
+function SquareROI(C,S)
+  H = S/2
+  count = 0
+  ROI = round.(Int,zeros(ceil(Int,1.1*S*S)+1,2))
+  for i = floor(Int,C[1] - H):ceil(Int,C[1] + H)
+    for j = floor(Int,C[2] - H):ceil(Int,C[2] + H)
+      if i > floor(Int,C[1] - H) && i < ceil(Int,C[1] + H) && j > floor(Int,C[1] - H) && j < ceil(Int,C[1] + H)
+        count +=1
+        ROI[count,1] = i
+        ROI[count,2] = j
+      end
+    end
+  end
+  return ROI[1:count,:]
+end
+
+function patternremap(I_coeffs, pad_size, ROI, P, Δ, F, m)
+  P_ivec = phosphor_frame_to_image_vec(P+Δ)
+  DD = P[3] + Δ[3]
+  Δ_ivec = phosphor_frame_to_image_vec(-Δ)
+  ΔDD = -Δ[3]
+  Fgi = rotate_to_image_frame(inv(F))
+  f = EvaluateWarpedImagePatternDistortion(I_coeffs, ROI, mattovec(Fgi), pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+  rmI = zeros(m,m)
+  for i=1:size(ROI,1)
+    rmI[ROI[i,1],ROI[i,2]] = f[i]
+  end
+  return rmI
+end
+
+function RobustLS(X,y)
+  tune = 4.685
+  n = size(y)[1]
+  w = ones(n)
+  H = X*inv(X'*X)*X'
+  h = zeros(n)
+  for i=1:n
+    h[i] = H[i,i]
+  end
+  converged = false
+  num_iterations = 0
+  β_old = zeros(size(X,2))
+  β_new = []
+  while !converged && num_iterations < 20
+    num_iterations += 1
+    Xp = diagm(w)*X
+    yp = diagm(w)*y
+    β_new = Xp\yp
+    if norm(β_new-β_old) < 1e-6
+      converged = true
+    else
+      resid = X*β_new - y
+      s = median(abs.(resid - median(resid)))/.6745
+      r = resid./(tune*s*sqrt.(1-h))
+      w = (abs.(r).<1) .* (1 - r.^2).^2
+      w = w.*(w.>=.01) + .01*(w.<.01)
+      β_old = β_new
+    end
+  end
+  return β_new
+end
+
+function BullseyeROIs(N, rad)
+  θs = 2*pi*collect(0:N-2)/(N-1)
+  ROIs = Array{Float64}(N,2)
+  ROIs[1,:] = [.5 .5]
+  for i=2:N
+    ROIs[i,:] = [.5 .5] + rad*[sin(θs[i-1]) cos(θs[i-1])]
+  end
+  return ROIs
+end
+
+function AnnularROIs(N, rad)
+  θs = 2*pi*collect(0:N-1)/N
+  ROIs = Array{Float64}(N,2)
+  for i=1:N
+    ROIs[i,:] = [.5 .5] + rad*[sin(θs[i]) cos(θs[i])]
+  end
+  return ROIs
+end
+
+function GridROIs(N, ROIsize, border)
+  S = floor(Int,sqrt(N))
+  ROIs = zeros(S*S,2)
+  count = 0
+  for i=1:S
+    for j=1:S
+      count += 1
+      ROIs[count,1] = border + ROIsize/200 + (i-1)*(1 - 2*border - ROIsize/100)/(S-1)
+      ROIs[count,2] = border + ROIsize/200 + (j-1)*(1 - 2*border - ROIsize/100)/(S-1)
+    end
+  end
+  return ROIs
+end
+
+function ROIUnion(ROIs,ROIsize,m)
+  ROIsize_px = 2*round(Int64,m*ROIsize/200)
+  RS2 = round(Int, ROIsize_px/2)
+  Union = zeros(Int,m*m,2)
+  N = size(ROIs)[1]
+  ks = zeros(Int,N)
+  count = 0
+  skip = 8
+  for j=1:skip
+    for i=1:floor(Int,N/skip)
+      count += 1
+      ks[count] = skip*(i-1) + j
+    end
+  end
+  ks[floor(Int,N/skip)*skip+1:N] = floor(Int,N/skip)*skip+1:N
+
+  count = 0
+  for i=round(Int,m*minimum(ROIs[:,1])) - RS2 - 1:round(Int,m*maximum(ROIs[:,1])) + RS2 + 1
+    for j=round(Int,m*minimum(ROIs[:,2])) - RS2 - 1:round(Int,m*maximum(ROIs[:,2])) + RS2 + 1
+      JoinUnion = false
+      for q in 1:N
+        k = ks[q]
+        ROI_px = round.(m*ROIs[k,:] + [.5,.5]) -  [.5,.5]
+        ROIC = round.(Int,ROI_px + [0.5;0.5])
+
+        rrange=ROIC[1] - RS2:ROIC[1] - RS2 + ROIsize_px - 1
+        crange=ROIC[2] - RS2:ROIC[2] - RS2 + ROIsize_px - 1
+        if (i in rrange)&&(j in crange)
+          JoinUnion = true
+          break
+        end
+      end
+      if JoinUnion
+        count+=1
+        Union[count,1] = i
+        Union[count,2] = j
+      end
+    end
+  end
+  return Union[1:count,:]
 end

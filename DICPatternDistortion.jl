@@ -1,4 +1,4 @@
-function RunIcgnPatternDistortion(G, F, ref_c, initial_guess_M, ROIsize,P_ivec, DD, Δ_ivec, ΔDD)
+function RunIcgnPatternDistortion(G, F_coeff, df_ddp, pad_size, f, f_m, hess, ROI, initial_guess_M, P_ivec, DD, Δ_ivec, ΔDD)
   # notation:
   # F: intensity of entire undeformed image
   # G: intensity of entire deformed image
@@ -10,33 +10,24 @@ function RunIcgnPatternDistortion(G, F, ref_c, initial_guess_M, ROIsize,P_ivec, 
   # f: intensity of ROI in undeformed image
   # g: intensity of ROI in deformed image
   # p: vector of deformations to be solved for
-  pad_size = 50
-  F_coeff = calc_B_coeffs(F, pad_size)
-  G_coeff = calc_B_coeffs(G, pad_size)
 
-  ROIrelative = SquareRoiEvenSize(ROIsize)
-  df_ddp = GetSteepestDescentImagesPatternDistortion(F_coeff, ROIrelative .+ ref_c', pad_size, P_ivec, DD)
-  f = EvaluateWarpedImagePatternDistortion(F_coeff, ROIrelative .+ ref_c', mattovec(eye(3)), pad_size, P_ivec, DD, [0,0], 0)
-  f_m = mean(f)
-  hess = ComputeHessian(f, f_m, df_ddp)
   p_old = initial_guess_M#initial_guess_M
-
-  g = EvaluateWarpedImagePatternDistortion(G_coeff, ROIrelative .+ ref_c', p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
-  g_m = mean(g)
-  grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
+  G_coeff = calc_B_coeffs(G, pad_size)
 
   converged = false
   num_iterations = 0
   while !converged && num_iterations < 20
     num_iterations += 1
-    g = EvaluateWarpedImagePatternDistortion(G_coeff, ROIrelative .+ ref_c', p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+    display(num_iterations)
+    g = EvaluateWarpedImagePatternDistortion(G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
     g_m = mean(g)
     grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
     dp = (hess\(-grad))
     p_new = UpdatePPatternDistortion(p_old, dp)
-    converged = (norm(p_new - p_old) < 1.0e-6)
+    converged = (norm(p_new - p_old) < 10.0e-6)
     p_old = p_new
   end
+  display("fin")
   return p_old
 end
 
@@ -67,8 +58,8 @@ function EvaluateWarpedImagePatternDistortion(F, ROIabsolute, p, pad_size, P_ive
   ROI = zeros(size(ROIabsolute))
   for i=1:size(ROIabsolute,1)
     x = xs[i,:]
-    Mx = M*[x[1];x[2];-DD]
-    ROInew = P_ivec + Δ_ivec - Mx[1:2]*(DD + ΔDD)/Mx[3]
+    Mr = M*[x[1];x[2];-DD]
+    ROInew = P_ivec + Δ_ivec - Mr[1:2]*(DD + ΔDD)/Mr[3]
     ROI[i,:] = ROInew
   end
   return SplineEvaluate(F, ROI, pad_size)
