@@ -1,4 +1,4 @@
-function RunIcgnPatternDistortion(G, F_coeff, df_ddp, pad_size, f, f_m, hess, ROI, initial_guess_M, P_ivec, DD, Δ_ivec, ΔDD)
+function RunIcgnPatternDistortion(G, F_coeff, df_ddp, pad_size, f, f_m, hess, ROI, initial_guess_M, P_ivec, DD, Δ_ivec, ΔDD; numimax = 10, Hupdate = false)
   # notation:
   # F: intensity of entire undeformed image
   # G: intensity of entire deformed image
@@ -12,23 +12,80 @@ function RunIcgnPatternDistortion(G, F_coeff, df_ddp, pad_size, f, f_m, hess, RO
   # p: vector of deformations to be solved for
 
   p_old = initial_guess_M#initial_guess_M
+  #display(heatmap(G))
   G_coeff = calc_B_coeffs(G, pad_size)
-
   converged = false
   num_iterations = 0
-  while !converged && num_iterations < 20
-    num_iterations += 1
-    display(num_iterations)
-    g = EvaluateWarpedImagePatternDistortion(G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
-    g_m = mean(g)
-    grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
-    dp = (hess\(-grad))
-    p_new = UpdatePPatternDistortion(p_old, dp)
-    converged = (norm(p_new - p_old) < 10.0e-6)
-    p_old = p_new
-  end
-  display("fin")
-  return p_old
+  pprog = zeros(numimax+1,9)
+  g = EvaluateWarpedImagePatternDistortion(G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+  if g != []
+      g_m = mean(g)
+      grad = ComputeGradient(f, f_m, g, g_m, df_ddp)
+
+
+      #hgrad = HyperCCGrad(F_coeff, G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+      #display(grad)
+      #display(hgrad)
+      #display(grad./hgrad)
+
+
+      failtoconverge = false
+      while !converged && num_iterations < numimax
+
+        num_iterations += 1
+        pprog[num_iterations,:] = p_old - [1 0 0 0 1 0 0 0 1]'
+
+        #begin superfluous code
+        if num_iterations <0
+            m = size(F_coeff)[1] - pad_size*2
+            WarpROI = AnnularROI([m,m]/2,0, m*(.4)+1, m)
+            F_remap = VR_deviatoric(vectomat(p_old))
+            F_remap = rotate_to_phosframe_from_image(F_remap)
+            display(F_remap)
+            PR_p_px = [image_vec_to_phosphor_frame(P_ivec)[1] image_vec_to_phosphor_frame(P_ivec)[2] DD]
+            Δ_p_px = [image_vec_to_phosphor_frame(Δ_ivec)[1] image_vec_to_phosphor_frame(Δ_ivec)[2] ΔDD]
+            RefI = patternremap(F_coeff, pad_size, WarpROI, PR_p_px, Δ_p_px, F_remap, m)
+            display(heatmap(RefI))
+        end
+        #end superfluous code
+
+        dp = hess\(-grad)
+        #display(hess)
+        p_new = UpdatePPatternDistortion(p_old, dp)
+        #display(norm(p_new - p_old))
+        converged = (norm(p_new - p_old) < 10.0e-6)
+
+        if ~converged
+            g = EvaluateWarpedImagePatternDistortion(G_coeff, ROI, p_new, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+            if g==[]
+                failtoconverge = true
+                break
+            end
+            g_m = mean(g)
+            grad_new = ComputeGradient(f, f_m, g, g_m, df_ddp)
+            if Hupdate
+                hess = BFGSupdate(hess, grad_new, grad, dp, zeros(size(dp)))
+            end
+            p_old = p_new
+            grad = grad_new
+        end
+      end
+      if num_iterations > 1
+        println("Number of iterations: ", num_iterations)
+      end
+      pprog[num_iterations+1,:] = p_old - [1 0 0 0 1 0 0 0 1]'
+      #display(plot(pprog[1:num_iterations+1,:]))
+      if (~failtoconverge) && converged
+          return p_old
+      else
+          return [2 1 1 1 2 1 1 1 2]
+      end
+
+    else
+        return [2 1 1 1 2 1 1 1 2]
+    end
+
+
 end
 
 function GetSteepestDescentImagesPatternDistortion(F_coeff, ROIabsolute, pad_size, P_ivec, DD)
@@ -53,32 +110,46 @@ function GetSteepestDescentImagesPatternDistortion(F_coeff, ROIabsolute, pad_siz
 end
 
 function EvaluateWarpedImagePatternDistortion(F, ROIabsolute, p, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
-  M = vectomat(p)
+  M = VR_deviatoric(vectomat(p))
   xs = [ROIabsolute[:,1]-P_ivec[1] ROIabsolute[:,2]-P_ivec[2]]
   ROI = zeros(size(ROIabsolute))
+  mn = size(F)
+  boundx = mn[1] - 2*pad_size
+  boundy = mn[2] - 2*pad_size
+  outofbounds = false
   for i=1:size(ROIabsolute,1)
     x = xs[i,:]
     Mr = M*[x[1];x[2];-DD]
     ROInew = P_ivec + Δ_ivec - Mr[1:2]*(DD + ΔDD)/Mr[3]
     ROI[i,:] = ROInew
+    if ~(boundx > ROInew[1] > 1) || ~(boundy > ROInew[2] > 1)
+        outofbounds = true
+    end
   end
-  return SplineEvaluate(F, ROI, pad_size)
+  if ~outofbounds
+      return SplineEvaluate(F, ROI, pad_size)
+  else
+      return []
+  end
 end
 
 function UpdatePPatternDistortion(p_old, dp)
   M = vectomat(p_old)
-  dM = vectomat(dp)+eye(3)
+  dM = VR_deviatoric(vectomat(dp)+eye(3))
+  #dM = dM - trace(dM)*eye(3)/3 + eye(3)
   p_new = mattovec(VR_deviatoric(M*inv(dM)))
+
 end
 
 function vectomat(v)
   M = [v[1] v[2] v[3];v[4] v[5] v[6];v[7] v[8] v[9]]
-  #M = [v[1] v[2] v[3];v[4] v[5] v[6];v[7] v[8] 1]
+  #x = (v[1] + v[5])/-3
+  #M = [v[1]+x+1 v[2] v[3];v[4] v[5]+x+1 v[6];v[7] v[8] x+1]
 end
 
 function mattovec(M)
   v = [M[1,1],M[1,2],M[1,3],M[2,1],M[2,2],M[2,3],M[3,1],M[3,2],M[3,3]]
-  #v = [M[1,1],M[1,2],M[1,3],M[2,1],M[2,2],M[2,3],M[3,1],M[3,2]]
+  #v = [M[1,1]-M[3,3],M[1,2],M[1,3],M[2,1],M[2,2]-M[3,3],M[2,3],M[3,1],M[3,2]]
 end
 
 

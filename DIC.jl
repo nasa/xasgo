@@ -1,5 +1,3 @@
-#using Plots
-include("QuinticBSpline.jl")
 
 
 function RunIcgn(G, F, ref_c, initial_guess_u, ROIsize)

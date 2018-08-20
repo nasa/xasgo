@@ -15,6 +15,10 @@ function versor_to_R(v)
     2*b*d+2*a*c 2*c*d-2*a*b 1-2*(b*b+c*c)]
 end
 
+function angofF(F)
+  return 180*acos((min(trace(F),3) - 1)/2)/pi
+end
+
 function euler_to_gmat(phi1, PHI, phi2)
   #Input angles may be vectors
   g = zeros(3,3,length(phi1));
@@ -40,6 +44,18 @@ function euler_to_gmat(phi1, PHI, phi2)
   end
 
   return g
+end
+
+function gmat_to_euler(g)
+  P = acos(sign(g[3,3])*min(abs(g[3,3]),1))
+  p1 = atan2(g[3,1],-g[3,2])
+	p2 = atan2(g[1,3], g[2,3])
+  return [p1,P,p2]
+end
+
+function axisang_to_gmat(n,θ)
+  K = [0 -n[3] n[2];n[3] 0 -n[1];-n[2] n[1] 0]
+  g = eye(3) + sin(θ)*K + (1-cos(θ))*K*K
 end
 
 function LSfit(qs,rs,F)
@@ -94,6 +110,30 @@ function findpeak2(A)
   fittedpeak = xyind + [C[4]*C[3] - 2.*C[6]*C[2],C[4]*C[2] - 2.*C[5]*C[3]]/denom
 end
 
+function findpeak3(A; n=1)
+  mn = size(A)
+  maxdat = findmax(A)
+  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
+  count = 0;
+  V = zeros((2*n+1)^2,1)
+  X = zeros((2*n+1)^2,6)
+  if (mn[1]-n)>xyind[1]>n && (mn[2]-n)>xyind[2]>n
+    for i in -n:n
+      for j in -n:n
+        count = count + 1
+        V[count] = A[xyind[1] + i, xyind[2] + j]
+        X[count,:] = [1 i j i*j i*i j*j]
+      end
+    end
+    C = X\V
+    denom = 4*C[6]*C[5] - C[4]*C[4]
+    fittedpeak = xyind + [C[4]*C[3] - 2.*C[6]*C[2],C[4]*C[2] - 2.*C[5]*C[3]]/denom
+  else
+    fittedpeak = xyind
+  end
+  return fittedpeak
+end
+
 function ccfilter(lb,ub, mn, smooth)
   ccfilt = zeros(mn[1],mn[2])
   mid = round(Int,(mn[1]+1.001)/2)
@@ -133,6 +173,14 @@ function squareimage(I)
 end
 
 function VR_poldec(A)
+  #Assume square matrix
+  S = svd(A)
+  R = S[1]*(S[3]')
+  V = S[1]*diagm(S[2])*(S[1]')
+  VR = [V, R]
+end
+
+function RU_poldec(A)
   #Assume square matrix
   S = svd(A)
   R = S[1]*(S[3]')
@@ -209,7 +257,7 @@ function beta_calc_Landon(qs,rs)
   β = [X[1] X[2] X[3];X[4] X[5] X[6];X[7] X[8] X[9]]
 end
 
-function beta_calc_FiniteR(qs,rs, v0)
+#=function beta_calc_FiniteR(qs,rs, v0)
   #m = Model(solver=NLoptSolver(algorithm=:LD_MMA))
   m = Model(solver=IpoptSolver(print_level=0))
 
@@ -249,7 +297,7 @@ function beta_calc_FiniteR(qs,rs, v0)
   F = finite_rotation_and_small_strain_to_F(getvalue(e11),getvalue(e12),getvalue(e13),getvalue(e22),getvalue(e23),getvalue(e33),getvalue(a),getvalue(b),getvalue(c),getvalue(d))
 
   β = F - eye(3)
-end
+end=#
 
 function find_change_in_frame(A,B)
   #Assume A and B are the same tensor in different frames, find g such that A = g*B*inv(g)
@@ -283,12 +331,58 @@ function MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px
 
   FD = rfft(windowfunc.*DROI)
   FR = rfft(windowfunc.*RROI)#windowfunc.*
-
   CC = fftshift(brfft(ccfilt[1:round(Int,ROIsize_px/2)+1,:].*FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
 
-  #println(findpeak2(CC) - ROIsize_px/2 - 1)
+  q = findpeak3(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIsize_px/2 - 1
 
-  q = findpeak2(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIsize_px/2 - 1
+  return q
+end
+
+function MeasureShiftNCC(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px; ccsp = 20)
+  RS2 = round(Int, ROIsize_px/2)
+
+  ROIC = round.(Int,ROI_px + [0.5;0.5])
+  sROIC = round.(Int,shiftROI_px + [0.5;0.5])
+
+  rrange=ROIC[1] - RS2:ROIC[1] - RS2 + ROIsize_px - 1
+  crange=ROIC[2] - RS2:ROIC[2] - RS2 + ROIsize_px - 1
+
+  RROI = RefI[rrange,crange]
+
+  q_guess = sROIC - ROIC
+
+  CC = NCC(sROIC[1]-ccsp-RS2:sROIC[1]+ccsp-RS2,sROIC[2]-ccsp-RS2:sROIC[2]+ccsp-RS2,RROI,DefI)
+
+  q = findpeak2(CC) + q_guess - ccsp
+
+  return q
+end
+
+function NCC(us,vs,t,f)
+  CC = zeros(size(us)[1],size(vs)[1])
+  for i=1:size(us)[1]
+    for j=1:size(vs)[1]
+      CC[i,j] = PointNCC(us[i], vs[j],t, f)
+    end
+  end
+  return CC
+end
+
+function PointNCC(u,v,t,f)
+  mn = size(t)
+  fmuv = mean(f[u+1:u+mn[1],v+1:v+mn[2]])
+  tm = mean(t)
+  n_gamuv = 0
+  df = 0
+  dt = 0
+  for x=u+1:u+mn[1]
+    for y = v+1:v+mn[2]
+      n_gamuv += (f[x,y] - fmuv)*(t[x-u,y-v] - tm)
+      df += (f[x,y] - fmuv)^2
+      dt += (t[x-u,y-v] - tm)^2
+    end
+  end
+  return gamuv = n_gamuv/sqrt(df*dt)
 end
 
 function Plot_ROI(I, ROI_px, ROIsize_px)
@@ -345,6 +439,17 @@ function PC_to_phosphor_frame(P,m)
   P_p = -m*[P[1]; 1-P[2]; -P[3]]
 end
 
+function xstar_to_EMsoft(P,m,n)
+  pcx = m*(P[1] - .5)
+  pcy = m*P[2] - n/2
+  pcz = m*P[3]
+  P_EM = [pcx,pcy,pcz]
+end
+
+function EMsoft_to_image(P, m, n)
+  P_i = [P[2]+n/2,P[1]+m/2, P[3]]
+end
+
 function offset_estimate_simple(r, PD, PR)
   δP = PD - PR
   q_p = δP + r*δP[3]/PR[3]
@@ -358,6 +463,17 @@ function offset_estimate_w_F(r, PD, PR, F)
   q_px = phosphor_frame_to_image_vec(q_p)
 end
 
+function get_ideal_qs(rs,PD,PR,F)
+    qs = zeros(size(rs))
+    for i=1:size(rs)[2]
+        r = rs[:,i]
+        qi = offset_estimate_w_F(r, PD, PR, F)
+        q = image_vec_to_phosphor_frame(qi)
+        qs[:,i] = q
+    end
+    return qs
+end
+
 function reverse_PC_offset(q, r_p,PD,PR)
   q_p = image_vec_to_phosphor_frame(q)
   δP = PD - PR
@@ -369,6 +485,33 @@ function prep_ebsp(filepath)
   I = squareimage(I)
   I = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},I)
   I = convert(Array{Float64},I)
+  #I = flattopfilter(I,3.5)
+  I = filterimage(I,9,90,25)
+end
+
+function flattopfilter(I,c)
+  μ = mean(I)
+  σ = std(I)
+  #I = sqrt(pi)*(c*σ)*erf.((I-μ)/(c*σ))/2 + μ
+  I[I.>(μ+c*σ)] = μ+c*σ
+  I[I.<(μ-c*σ)] = μ-c*σ
+  return I
+end
+
+function addnoiseUINT8(I,σ)
+  I = convert(Array{Float64},I)
+  I += σ*randn(size(I))
+  I[I.<0] = 0
+  I[I.>1] = 1
+  I = round.(I*256)/256
+end
+
+function dodgy_prep_ebsp(filepath,σ)
+  I = load(filepath)
+  I = squareimage(I)
+  I = convert(Array{ColorTypes.Gray{FixedPointNumbers.Normed{UInt8,8}},2},I)
+  I = convert(Array{Float64},I)
+  I = addnoiseUINT8(I,σ)
   I = filterimage(I,9,90,25)
 end
 
@@ -416,14 +559,19 @@ function patternremap(I_coeffs, pad_size, ROI, P, Δ, F, m)
   Fgi = rotate_to_image_frame(inv(F))
   f = EvaluateWarpedImagePatternDistortion(I_coeffs, ROI, mattovec(Fgi), pad_size, P_ivec, DD, Δ_ivec, ΔDD)
   rmI = zeros(m,m)
-  for i=1:size(ROI,1)
-    rmI[ROI[i,1],ROI[i,2]] = f[i]
+  if f==[]
+      return []
+  else
+      for i=1:size(ROI,1)
+        rmI[ROI[i,1],ROI[i,2]] = f[i]
+      end
+      return rmI
   end
-  return rmI
 end
 
 function RobustLS(X,y)
-  tune = 4.685
+  #tune = 4.685
+  tune = 3.
   n = size(y)[1]
   w = ones(n)
   H = X*inv(X'*X)*X'
@@ -451,6 +599,7 @@ function RobustLS(X,y)
       β_old = β_new
     end
   end
+  display(num_iterations)
   return β_new
 end
 
@@ -464,11 +613,11 @@ function BullseyeROIs(N, rad)
   return ROIs
 end
 
-function AnnularROIs(N, rad)
+function AnnularROIs(N, rad; centerpoint = [.5 .5])
   θs = 2*pi*collect(0:N-1)/N
   ROIs = Array{Float64}(N,2)
   for i=1:N
-    ROIs[i,:] = [.5 .5] + rad*[sin(θs[i]) cos(θs[i])]
+    ROIs[i,:] = centerpoint + rad*[sin(θs[i]) cos(θs[i])]
   end
   return ROIs
 end
@@ -527,4 +676,157 @@ function ROIUnion(ROIs,ROIsize,m)
     end
   end
   return Union[1:count,:]
+end
+
+function rotateNx3x3(F,Q; tpose = false)
+  rotF = zeros(size(F))
+  for i=1:size(F)[1]
+    thisF = F[i,:,:]
+    if typeof(Q) == Array{Float64,3}
+      thisQ = Q[i,:,:]
+    elseif typeof(Q) == Array{Float64,2} && size(Q) == (3,3)
+      thisQ = Q
+    elseif typeof(Q) == Array{Float64,2} && size(Q) == (size(F)[1],3)
+      thisQ = euler_to_gmat(Q[i,1],Q[i,2],Q[i,3])
+    else
+      display("Error in rotateNx3x3, Q in unrecognized format")
+    end
+    if tpose
+      thisQ = thisQ'
+    end
+    newF = thisQ*thisF*(thisQ')
+    rotF[i,:,:] = newF
+  end
+  return rotF
+end
+
+function rotPtoC(P,Qps, eulers)
+    S = rotateNx3x3(P,Qps)
+    C = rotateNx3x3(S,eulers)
+end
+
+function stresscalc(F, C)
+    σ = zeros(size(F))
+    for i=1:size(F)[1]
+        thisF = F[i,:,:]
+        E = VR_poldec(thisF)[1] - eye(3)
+        Evec = [E[1,1], E[2,2], E[3,3], 2*E[2,3], 2*E[1,3], 2*E[1,2]]
+        s = C*Evec
+        σ[i,:,:] = [s[1] s[6] s[5];s[6] s[2] s[4];s[5] s[4] s[3]]
+    end
+    return σ
+end
+
+function normNx3x3(F; normtype = "operator2")
+  n = zeros(size(F)[1])
+  for i=1:size(F)[1]
+    thisF = F[i,:,:]
+    if normtype == "maxnorm"
+      n[i] = maximum(abs.(thisF))
+    elseif normtype == "operator2"
+      n[i] = norm(thisF)
+  elseif normtype == "mises"
+        ssum = (thisF[1,1] - thisF[2,2])^2
+        ssum += (thisF[3,3] - thisF[2,2])^2
+        ssum += (thisF[1,1] - thisF[3,3])^2
+        ssum += 6*(thisF[1,2]^2 + thisF[2,3]^2 + thisF[3,1]^2)
+      n[i] = sqrt(ssum/2)
+    else
+      display("Error in norm calculation, normtype not valid")
+      n[i] = norm(thisF)
+    end
+  end
+  return n
+end
+
+function plotNx3x3Fcomponents(x,F;microstrain = true, minusI = true)
+  toplot = []
+  if minusI
+    toplot = [F[:,1,1]-1 F[:,1,2] F[:,1,3] F[:,2,1] F[:,2,2]-1 F[:,2,3] F[:,3,1] F[:,3,2] F[:,3,3]-1]
+  else
+    toplot = [F[:,1,1] F[:,1,2] F[:,1,3] F[:,2,1] F[:,2,2] F[:,2,3] F[:,3,1] F[:,3,2] F[:,3,3]]
+  end
+  if microstrain
+    toplot = toplot*1e6
+  end
+  display(plot(x,toplot))
+end
+
+function heatmapNx3x3(F,mn;microstrain = true, minusI = true)
+  if minusI
+    F = F - eyeNx3x3(size(F)[1])
+  end
+  if microstrain
+    F *= 1e6
+  end
+  for i=1:3
+    for j=1:3
+      display(heatmap(reshape(F[:,i,j],mn[1],mn[2])))
+    end
+  end
+end
+
+function convertFtostrain(F)
+  E = zeros(size(F))
+  for i=1:size(F)[1]
+    thisF = F[i,:,:]
+    VR = VR_poldec(thisF)
+    E[i,:,:] = VR[1] - eye(3)
+  end
+  return E
+end
+
+function misangNx3x3(F)
+  misang = zeros(size(F)[1])
+  for i=1:size(F)[1]
+    thisF = F[i,:,:]
+    if thisF != -eye(3)
+        VR = VR_poldec(thisF)
+        misang[i] = angofF(VR[2])
+    end
+  end
+  return misang
+end
+
+function tetragNx3x3(F)
+    tetrag = zeros(size(F)[1])
+    for i=1:size(F)[1]
+      thisF = F[i,:,:]
+      thisE = VR_poldec(thisF)[1]
+      thisD = eig(thisE)[1]
+      tetrag[i] = maximum(thisD) - (sum(thisD) - maximum(thisD))/2
+    end
+    return tetrag
+end
+
+function ffinvNx3x3(F1,F2)
+  Fout = zeros(size(F1))
+  for i=1:size(F1)[1]
+    thisF1 = F1[i,:,:]
+    thisF2 = F2[i,:,:]
+    Fout[i,:,:] = thisF1*inv(thisF2)
+  end
+  return Fout
+end
+
+function eyeNx3x3(N)
+  I = zeros(N,3,3)
+  for i=1:N
+    I[i,:,:] = eye(3)
+  end
+  return I
+end
+
+function perturbeulers(p1,P,p2,ang,n)
+  g0 = euler_to_gmat(p1,P,p2)
+  gp = axisang_to_gmat(n,ang)
+  g1 = gp*g0
+  angs = gmat_to_euler(g1)
+end
+
+function BFGSupdate(Bk, gradkp1, gradk, xkp1, xk)
+  yk = gradkp1 - gradk
+  sk = xkp1 - xk
+  Bkp1 = Bk + (yk*yk')/(yk'*sk) - Bk*(sk*sk')*Bk/(sk'*Bk*sk)
+  return Bkp1
 end

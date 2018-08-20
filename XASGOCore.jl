@@ -19,7 +19,7 @@ function F_NCorrShift(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess, ccfilt
   F = VR_deviatoric(β+eye(3))
 end
 
-function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess, ccfilt, windowfunc)
+function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess, ccfilt, windowfunc; numimax = 10)
   m = minimum(size(DefI))  # smallest dimension of image
   ROIsize_px = 2*round(Int64,m*ROIsize/200) #ROI forced to be even and square
   qs = zeros(3,size(ROIs)[1])
@@ -29,9 +29,8 @@ function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess,
   converged = false
   num_iterations = 0
   F_new = eye(3)
-  while !converged && num_iterations < 20
+  while !converged && num_iterations < numimax
     num_iterations += 1
-    display(num_iterations)
     for i in 1:size(ROIs)[1]
       ROI_px = round.(m*ROIs[i,:] + [.5,.5]) -  [.5,.5]
       ROI_p_px = image_vec_to_phosphor_frame(ROI_px)
@@ -50,25 +49,13 @@ function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess,
       F_guess = F_new
     end
   end
+  if num_iterations > 1
+    println("Number of iterations: ", num_iterations)
+  end
   return F_new
 end
 
-function F_ICGN(ROI, DefI, PD, gD, RefI_coeff, df_ddp, pad_size, f, f_m, hess, PR, gR, F_guess)
-  m = minimum(size(DefI))
-  PD_p_px = PC_to_phosphor_frame(PD,m)
-  PR_p_px = PC_to_phosphor_frame(PR,m)
-  Δ_p_px =  PD_p_px - PR_p_px
-  DD = PR_p_px[3]
-  P_ivec = phosphor_frame_to_image_vec(PR_p_px)
-  ΔDD = Δ_p_px[3]
-  Δ_ivec = phosphor_frame_to_image_vec(Δ_p_px)
-  Fgi = rotate_to_image_frame(F_guess)
-  Fvec = RunIcgnPatternDistortion(DefI, RefI_coeff, df_ddp, pad_size, f, f_m, hess, ROI, mattovec(Fgi), P_ivec, DD, Δ_ivec, ΔDD)
-  F = VR_deviatoric(vectomat(Fvec))
-  F = rotate_to_phosframe_from_image(F)
-end
-
-function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_size, PR, gR, F_guess, ccfilt, windowfunc)
+function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_size, PR, gR, F_guess, ccfilt, windowfunc; numimax = 10)
   m = minimum(size(DefI))
   ROIsize_px = 2*round(Int64,m*ROIsize/200) #ROI forced to be even and square
   qs = zeros(3,size(ROIs)[1])
@@ -79,25 +66,44 @@ function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_siz
   num_iterations = 0
   F_guess = VR_deviatoric(F_guess)
   F_new = eye(3)
-  while !converged && num_iterations < 20
+
+  while !converged && num_iterations < numimax
     num_iterations += 1
     #display(num_iterations)
-    RefI = patternremap(RefI_coeffs, pad_size, WarpROI, PR_p_px, PD_p_px-PR_p_px, F_guess, m)
-    for i in 1:size(ROIs)[1]
-      ROI_px = round.(m*ROIs[i,:] + [.5,.5]) -  [.5,.5]
-      ROI_p_px = image_vec_to_phosphor_frame(ROI_px)
-      r_p = ROI_p_px - PR_p_px
-      thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, ROI_px, ROIsize_px, windowfunc, ccfilt)
-      qs[:,i] = image_vec_to_phosphor_frame(thisq)/m
-      rs[:,i] = r_p/m
-    end
-    β = beta_calc_Ruggles(qs,rs, false)
-    F_new = VR_deviatoric(β+eye(3))*F_guess
-    if norm(F_new-F_guess)<10e-6
-      converged = true
+    F_remap = F_guess#VR_poldec(F_guess)[2]
+    RefI = patternremap(RefI_coeffs, pad_size, WarpROI, PR_p_px, PD_p_px-PR_p_px, F_remap, m)
+    if RefI == []
+        F_new = eye(3) + ones(3,3)
+        converged = true
     else
-      F_guess = F_new
+        for i in 1:size(ROIs)[1]
+          ROI_px = round.(m*ROIs[i,:] + [.5,.5]) -  [.5,.5]
+          ROI_p_px = image_vec_to_phosphor_frame(ROI_px)
+          r_p = ROI_p_px - PR_p_px
+          thisq = MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, ROI_px, ROIsize_px, windowfunc, ccfilt)
+          qs[:,i] = image_vec_to_phosphor_frame(thisq)/m
+          rs[:,i] = r_p/m
+        end
+        if num_iterations>100
+            qnorms = m*sqrt.(sum(qs.*qs,1))
+            #display(histogram(squeeze(qnorms,1)))
+            display(mean(qnorms))
+        end
+        β = beta_calc_Ruggles(qs,rs, false)
+        F_new = VR_deviatoric(β+eye(3))*F_remap
+        #display(norm(F_new-F_guess))
+        if norm(F_new-F_guess)<10e-6
+          converged = true
+        else
+          F_guess = F_new
+        end
     end
+  end
+  if (num_iterations >= 20) && (~converged)
+      F_new = eye(3) + ones(3,3)
+  end
+  if num_iterations > 1
+    println("Number of iterations: ", num_iterations)
   end
   return F_new
 end
