@@ -3,13 +3,15 @@
 #
 #Disclaimers
 #No Warranty: THE SUBJECT SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY OF ANY KIND, EITHER EXPRESSED, IMPLIED, OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, ANY WARRANTY THAT THE SUBJECT SOFTWARE WILL CONFORM TO SPECIFICATIONS, ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR FREEDOM FROM INFRINGEMENT, ANY WARRANTY THAT THE SUBJECT SOFTWARE WILL BE ERROR FREE, OR ANY WARRANTY THAT DOCUMENTATION, IF PROVIDED, WILL CONFORM TO THE SUBJECT SOFTWARE. THIS AGREEMENT DOES NOT, IN ANY MANNER, CONSTITUTE AN ENDORSEMENT BY GOVERNMENT AGENCY OR ANY PRIOR RECIPIENT OF ANY RESULTS, RESULTING DESIGNS, HARDWARE, SOFTWARE PRODUCTS OR ANY OTHER APPLICATIONS RESULTING FROM USE OF THE SUBJECT SOFTWARE.  FURTHER, GOVERNMENT AGENCY DISCLAIMS ALL WARRANTIES AND LIABILITIES REGARDING THIRD-PARTY SOFTWARE, IF PRESENT IN THE ORIGINAL SOFTWARE, AND DISTRIBUTES IT "AS IS." 
-# 
+#
 #Waiver and Indemnity:  RECIPIENT AGREES TO WAIVE ANY AND ALL CLAIMS AGAINST THE UNITED STATES GOVERNMENT, ITS CONTRACTORS AND SUBCONTRACTORS, AS WELL AS ANY PRIOR RECIPIENT.  IF RECIPIENT'S USE OF THE SUBJECT SOFTWARE RESULTS IN ANY LIABILITIES, DEMANDS, DAMAGES, EXPENSES OR LOSSES ARISING FROM SUCH USE, INCLUDING ANY DAMAGES FROM PRODUCTS BASED ON, OR RESULTING FROM, RECIPIENT'S USE OF THE SUBJECT SOFTWARE, RECIPIENT SHALL INDEMNIFY AND HOLD HARMLESS THE UNITED STATES GOVERNMENT, ITS CONTRACTORS AND SUBCONTRACTORS, AS WELL AS ANY PRIOR RECIPIENT, TO THE EXTENT PERMITTED BY LAW.  RECIPIENT'S SOLE REMEDY FOR ANY SUCH MATTER SHALL BE THE IMMEDIATE, UNILATERAL TERMINATION OF THIS AGREEMENT.
 
 
 
 using Images, Colors, FixedPointNumbers, Plots
 using FFTW
+using SpecialFunctions
+using LinearAlgebra, Statistics
 #using JuMP
 #using NLopt
 #using Ipopt
@@ -32,7 +34,7 @@ m = minimum(size(RefI))=#
 RefI = prep_ebsp(joinpath("al_ebsd","set4",string("ebsd_",0,".png")))
 PR = [.5 .5 .625]
 #gR = euler_to_gmat(pi/12,	pi/18,	0)
-gR = euler_to_gmat(0,0,0)
+gR = euler_to_gmat([0],[0],[0])
 m = minimum(size(RefI))
 
 NP = 41
@@ -77,18 +79,15 @@ ROIinfo = [.5,.5,.14287,.355]
 ROIs = AnnularROIs(N,rad)
 WarpROI = AnnularROI([m,m]/2,m*(rad-(ROIsize/100)/sqrt(2))-3, m*(rad+(ROIsize/100)/sqrt(2))+1, m)
 
-tic()
-F = GrainFCalcICGN(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIinfo = ROIinfo, Hupdate = false)
-toc()
-tic()
-FR = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "remap", WarpROI = WarpROI)
-toc()
-tic()
-FN = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "ncorrshift")
-toc()
-tic()
-FR1 = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "remapSingle", WarpROI = WarpROI)
-toc()
+
+F = @time GrainFCalcICGN(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIinfo = ROIinfo, Hupdate = false)
+
+#FR = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "remap", WarpROI = WarpROI)
+
+#FN = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "ncorrshift")
+
+#FR1 = GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps, ROIs = ROIs, ROIsize = ROIsize, FAlgorithm = "remapSingle", WarpROI = WarpROI)
+
 
 
 
@@ -96,13 +95,13 @@ toc()
 display("Done")
 FT = zeros(size(F))
 FG = zeros(size(F))
-Pseudo = eye(3) + [-2310 0 0;0 2640 0;0 0 -330]/1e6
+Pseudo = I + [-2310 0 0;0 2640 0;0 0 -330]/1e6
 for i=1:size(F)[1]
-  gD = euler_to_gmat(Pangles[i,1], Pangles[i,2], Pangles[i,3])
+  gD = euler_to_gmat([Pangles[i,1]], [Pangles[i,2]], [Pangles[i,3]])
   thisFT = Qps'*gD'*Pseudo*gR*Qps
   FT[i,:,:] = thisFT
 
-  gG = euler_to_gmat(PatternInfo[i,1], PatternInfo[i,2], PatternInfo[i,3])
+  gG = euler_to_gmat([PatternInfo[i,1]], [PatternInfo[i,2]], [PatternInfo[i,3]])
   thisFG = Qps'*gG'*gR*Qps
   FG[i,:,:] = thisFG
 

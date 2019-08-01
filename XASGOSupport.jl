@@ -1,7 +1,7 @@
 function finite_rotation_and_small_strain_to_F(e11,e12,e13,e22,e23,e33,a,b,c,d)
   e = [e11 e12 e13;e12 e22 e23;e12 e23 e33]
   R = versor_to_R([a,b,c,d])
-  return F = (eye(3)+e)*R
+  return F = (I+e)*R
 end
 
 function versor_to_R(v)
@@ -16,18 +16,18 @@ function versor_to_R(v)
 end
 
 function angofF(F)
-  return 180*acos((min(trace(F),3) - 1)/2)/pi
+  return 180*acos((min(tr(F),3) - 1)/2)/pi
 end
 
 function euler_to_gmat(phi1, PHI, phi2)
   #Input angles may be vectors
   g = zeros(3,3,length(phi1));
-  cp1 = cos(phi1);
-  sp1 = sin(phi1);
-  cp2 = cos(phi2);
-  sp2 = sin(phi2);
-  cP = cos(PHI);
-  sP = sin(PHI);
+  cp1 = cos.(phi1);
+  sp1 = sin.(phi1);
+  cp2 = cos.(phi2);
+  sp2 = sin.(phi2);
+  cP = cos.(PHI);
+  sP = sin.(PHI);
 
   g[1,1,:]= cp1.*cp2-sp1.*sp2.*cP;
   g[1,2,:] = sp1.*cp2+cp1.*sp2.*cP;
@@ -40,7 +40,7 @@ function euler_to_gmat(phi1, PHI, phi2)
   g[3,3,:]=  cP;
 
   if size(g,3) == 1
-    g = squeeze(g,3)
+    g = g[:,:,1]
   end
 
   return g
@@ -55,7 +55,7 @@ end
 
 function axisang_to_gmat(n,θ)
   K = [0 -n[3] n[2];n[3] 0 -n[1];-n[2] n[1] 0]
-  g = eye(3) + sin(θ)*K + (1-cos(θ))*K*K
+  g = I + sin(θ)*K + (1-cos(θ))*K*K
 end
 
 function LSfit(qs,rs,F)
@@ -74,7 +74,7 @@ end
 function findpeak(A)
   mn = size(A)
   maxdat = findmax(A)
-  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
+  xyind = [maxdat[2][1], maxdat[2][2]]
   X = [1 -1 1;1 0 0;1 1 1]
   xs = [A[xyind[1]-1,xyind[2]],A[xyind[1],xyind[2]],A[xyind[1]+1,xyind[2]]]
   ys = [A[xyind[1],xyind[2]-1],A[xyind[1],xyind[2]],A[xyind[1],xyind[2]+1]]
@@ -87,7 +87,7 @@ end
 function findpeak2(A)
   mn = size(A)
   maxdat = findmax(A)
-  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
+  xyind = [maxdat[2][1], maxdat[2][2]]
   X = [1 -1 -1 1 1 1;
         1 -1 0 0 1 0;
         1 -1 1 -1 1 1;
@@ -107,13 +107,13 @@ function findpeak2(A)
   end
   C = X\V
   denom = 4*C[6]*C[5] - C[4]*C[4]
-  fittedpeak = xyind + [C[4]*C[3] - 2.*C[6]*C[2],C[4]*C[2] - 2.*C[5]*C[3]]/denom
+  fittedpeak = xyind + [C[4]*C[3] - 2*C[6]*C[2],C[4]*C[2] - 2*C[5]*C[3]]/denom
 end
 
 function findpeak3(A; n=1)
   mn = size(A)
   maxdat = findmax(A)
-  xyind = [(maxdat[2]-1)%mn[1] + 1,convert(Int,ceil(maxdat[2]/mn[1]))]
+  xyind = [maxdat[2][1], maxdat[2][2]]
   count = 0;
   V = zeros((2*n+1)^2,1)
   X = zeros((2*n+1)^2,6)
@@ -127,7 +127,7 @@ function findpeak3(A; n=1)
     end
     C = X\V
     denom = 4*C[6]*C[5] - C[4]*C[4]
-    fittedpeak = xyind + [C[4]*C[3] - 2.*C[6]*C[2],C[4]*C[2] - 2.*C[5]*C[3]]/denom
+    fittedpeak = xyind + [C[4]*C[3] - 2*C[6]*C[2],C[4]*C[2] - 2*C[5]*C[3]]/denom
   else
     fittedpeak = xyind
   end
@@ -162,7 +162,7 @@ function ccwindow(L)
     end
   end
   mid = (L+1)/2
-  windowfunc = cos.((D-mid)*pi/L).*cos.((D'-mid)*pi/L)
+  windowfunc = cos.((D.-mid)*pi/L).*cos.((D'.-mid)*pi/L)
   return windowfunc
 end
 
@@ -175,22 +175,22 @@ end
 function VR_poldec(A)
   #Assume square matrix
   S = svd(A)
-  R = S[1]*(S[3]')
-  V = S[1]*diagm(S[2])*(S[1]')
+  R = S.U*S.Vt
+  V = S.U*Diagonal(S.S)*(S.U')
   VR = [V, R]
 end
 
 function RU_poldec(A)
   #Assume square matrix
   S = svd(A)
-  R = S[1]*(S[3]')
-  V = S[1]*diagm(S[2])*(S[1]')
-  VR = [V, R]
+  R = S.U*S.Vt
+  U = S.V*Diagonal(S.S)*S.Vt
+  RU = [R, U]
 end
 
 function VR_deviatoric(A)
   VR = VR_poldec(A)
-  return (eye(3) + VR[1] - trace(VR[1])*eye(3)/3.)*VR[2]
+  return (I + VR[1] - tr(VR[1])*I./3.0)*VR[2]
 end
 
 function beta_calc_Ruggles(qs,rs, robust_e)
@@ -296,7 +296,7 @@ end
   display([getvalue(e11),getvalue(e12),getvalue(e13),getvalue(e22),getvalue(e23),getvalue(e33),getvalue(a),getvalue(b),getvalue(c),getvalue(d)])
   F = finite_rotation_and_small_strain_to_F(getvalue(e11),getvalue(e12),getvalue(e13),getvalue(e22),getvalue(e23),getvalue(e33),getvalue(a),getvalue(b),getvalue(c),getvalue(d))
 
-  β = F - eye(3)
+  β = F - I
 end=#
 
 function find_change_in_frame(A,B)
@@ -333,7 +333,7 @@ function MeasureShiftClassic_w_Shift(DefI, RefI, ROI_px, shiftROI_px, ROIsize_px
   FR = rfft(windowfunc.*RROI)#windowfunc.*
   CC = fftshift(brfft(ccfilt[1:round(Int,ROIsize_px/2)+1,:].*FD.*conj(FR),ROIsize_px))#ccfilt[1:round(Int,ROIsize_px/2)+1,:].*
 
-  q = findpeak3(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] - ROIsize_px/2 - 1
+  q = findpeak3(CC) - [rrange[1] - srrange[1],crange[1] - scrange[1]] .- ROIsize_px/2 .- 1
 
   return q
 end
@@ -615,7 +615,7 @@ end
 
 function AnnularROIs(N, rad; centerpoint = [.5 .5])
   θs = 2*pi*collect(0:N-1)/N
-  ROIs = Array{Float64}(N,2)
+  ROIs = Array{Float64}(undef,N,2)
   for i=1:N
     ROIs[i,:] = centerpoint + rad*[sin(θs[i]) cos(θs[i])]
   end
@@ -687,7 +687,7 @@ function rotateNx3x3(F,Q; tpose = false)
     elseif typeof(Q) == Array{Float64,2} && size(Q) == (3,3)
       thisQ = Q
     elseif typeof(Q) == Array{Float64,2} && size(Q) == (size(F)[1],3)
-      thisQ = euler_to_gmat(Q[i,1],Q[i,2],Q[i,3])
+      thisQ = euler_to_gmat([Q[i,1]],[Q[i,2]],[Q[i,3]])
     else
       display("Error in rotateNx3x3, Q in unrecognized format")
     end
@@ -709,7 +709,7 @@ function stresscalc(F, C)
     σ = zeros(size(F))
     for i=1:size(F)[1]
         thisF = F[i,:,:]
-        E = VR_poldec(thisF)[1] - eye(3)
+        E = VR_poldec(thisF)[1] - I
         Evec = [E[1,1], E[2,2], E[3,3], 2*E[2,3], 2*E[1,3], 2*E[1,2]]
         s = C*Evec
         σ[i,:,:] = [s[1] s[6] s[5];s[6] s[2] s[4];s[5] s[4] s[3]]
@@ -742,7 +742,7 @@ end
 function plotNx3x3Fcomponents(x,F;microstrain = true, minusI = true)
   toplot = []
   if minusI
-    toplot = [F[:,1,1]-1 F[:,1,2] F[:,1,3] F[:,2,1] F[:,2,2]-1 F[:,2,3] F[:,3,1] F[:,3,2] F[:,3,3]-1]
+    toplot = [F[:,1,1].-1 F[:,1,2] F[:,1,3] F[:,2,1] F[:,2,2].-1 F[:,2,3] F[:,3,1] F[:,3,2] F[:,3,3].-1]
   else
     toplot = [F[:,1,1] F[:,1,2] F[:,1,3] F[:,2,1] F[:,2,2] F[:,2,3] F[:,3,1] F[:,3,2] F[:,3,3]]
   end
@@ -771,7 +771,7 @@ function convertFtostrain(F)
   for i=1:size(F)[1]
     thisF = F[i,:,:]
     VR = VR_poldec(thisF)
-    E[i,:,:] = VR[1] - eye(3)
+    E[i,:,:] = VR[1] - I
   end
   return E
 end
@@ -780,7 +780,7 @@ function misangNx3x3(F)
   misang = zeros(size(F)[1])
   for i=1:size(F)[1]
     thisF = F[i,:,:]
-    if thisF != -eye(3)
+    if thisF != -I
         VR = VR_poldec(thisF)
         misang[i] = angofF(VR[2])
     end
@@ -812,7 +812,7 @@ end
 function eyeNx3x3(N)
   I = zeros(N,3,3)
   for i=1:N
-    I[i,:,:] = eye(3)
+    I[i,:,:] = I
   end
   return I
 end

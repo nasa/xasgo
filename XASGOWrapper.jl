@@ -5,8 +5,8 @@ using FFTW
 #using Ipopt
 
 include("XASGOCore.jl")
-#include("QuinticBSpline.jl")
-include("CubicBSpline.jl")
+include("QuinticBSpline.jl")
+#include("CubicBSpline.jl")
 include("DIC.jl")
 include("DICPatternDistortion.jl")
 include("XASGOSupport.jl")
@@ -30,7 +30,7 @@ function GrainFCalcCC(RefI, PR, gR, Patterns, PatternInfo, Qps; ROIs = BullseyeR
   for i=1:num_pats
     println("Pattern #: ", i)
     PD = PatternInfo[i,4:6]
-    gD = euler_to_gmat(PatternInfo[i,1], PatternInfo[i,2], PatternInfo[i,3])
+    gD = euler_to_gmat([PatternInfo[i,1]], [PatternInfo[i,2]], [PatternInfo[i,3]])
     DefI = prep_ebsp(Patterns[i])
     if FG == []
         F_guess = Qps'*gD'*gR*Qps
@@ -86,7 +86,7 @@ function GrainFCalcICGN(RefI, PR, gR, Patterns, PatternInfo, Qps; ROIinfo = [.5,
 
   df_ddp = GetSteepestDescentImagesPatternDistortion(RefI_coeff, ROI, pad_size, P_ivec, DD)
 
-  f = EvaluateWarpedImagePatternDistortion(RefI_coeff, ROI, mattovec(eye(3)), pad_size, P_ivec, DD, [0,0], 0)
+  f = EvaluateWarpedImagePatternDistortion(RefI_coeff, ROI, mattovec(I), pad_size, P_ivec, DD, [0,0], 0)
 
   f_m = mean(f)
   hess = ComputeHessian(f, f_m, df_ddp)
@@ -97,7 +97,7 @@ function GrainFCalcICGN(RefI, PR, gR, Patterns, PatternInfo, Qps; ROIinfo = [.5,
     println("Pattern #: ", i)
 
     PD = PatternInfo[i,4:6]
-    gD = euler_to_gmat(PatternInfo[i,1], PatternInfo[i,2], PatternInfo[i,3])
+    gD = euler_to_gmat([PatternInfo[i,1]], [PatternInfo[i,2]], [PatternInfo[i,3]])
     DefI = prep_ebsp(Patterns[i])
 
     if FG == []

@@ -24,9 +24,14 @@ function RunIcgnPatternDistortion(G, F_coeff, df_ddp, pad_size, f, f_m, hess, RO
 
 
       #hgrad = HyperCCGrad(F_coeff, G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
-      #display(grad)
+
+      display(grad)
       #display(hgrad)
+
+      dgrad = DualCCGrad(F_coeff, G_coeff, ROI, p_old, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
+      display(dgrad)
       #display(grad./hgrad)
+      display(grad./dgrad)
 
 
       failtoconverge = false
@@ -92,7 +97,7 @@ function GetSteepestDescentImagesPatternDistortion(F_coeff, ROIabsolute, pad_siz
   # this function assumes x_ref_tilde = x_ref
   # ddp = [ddβ_ij]
   df_ddp = zeros(size(ROIabsolute, 1), 9)
-  x = [ROIabsolute[:,1]-P_ivec[1] ROIabsolute[:,2]-P_ivec[2]]
+  x = [ROIabsolute[:,1].-P_ivec[1] ROIabsolute[:,2].-P_ivec[2]]
 
   df_dxy = SplineDerivative(F_coeff, ROIabsolute, pad_size)
   f1 = copy(df_dxy[:, 1])
@@ -111,7 +116,7 @@ end
 
 function EvaluateWarpedImagePatternDistortion(F, ROIabsolute, p, pad_size, P_ivec, DD, Δ_ivec, ΔDD)
   M = VR_deviatoric(vectomat(p))
-  xs = [ROIabsolute[:,1]-P_ivec[1] ROIabsolute[:,2]-P_ivec[2]]
+  xs = [ROIabsolute[:,1].-P_ivec[1] ROIabsolute[:,2].-P_ivec[2]]
   ROI = zeros(size(ROIabsolute))
   mn = size(F)
   boundx = mn[1] - 2*pad_size
@@ -135,7 +140,7 @@ end
 
 function UpdatePPatternDistortion(p_old, dp)
   M = vectomat(p_old)
-  dM = VR_deviatoric(vectomat(dp)+eye(3))
+  dM = VR_deviatoric(vectomat(dp)+I)
   #dM = dM - trace(dM)*eye(3)/3 + eye(3)
   p_new = mattovec(VR_deviatoric(M*inv(dM)))
 

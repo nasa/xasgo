@@ -2,7 +2,7 @@
 using FFTW
 
 function sample_quintic_kernel(N)
-  return fft([11./20  13./60 1./120 0 zeros(1,ceil(Int,(N-6))) 1./120 13./60 ])
+  return fft([11/20  13/60 1/120 0 zeros(1,ceil(Int,(N-6))) 1/120 13/60 ])
 end
 
 
@@ -25,7 +25,7 @@ end
 function convolve_for_spline_coeffs(I, FK)
   mn = size(I)
   B = zeros(mn[1],mn[2])
-  thisrow = Array{Complex{Float64}}(1,mn[2])
+  thisrow = Array{Complex{Float64}}(undef,1,mn[2])
   for i=1:mn[1]
     thisrow[1,:] = fft(I[i,:])
     B[i,:] = real(ifft(thisrow./FK))
@@ -56,7 +56,7 @@ end
 
 function SplineEvaluate(B_coeff, ROI, pad_size)
   QK = get_QK()
-  f = Array{Float64}(size(ROI, 1))
+  f = Array{Float64}(undef,size(ROI, 1))
   for i in 1:size(ROI,1)
     x_floor = convert(Array{Int,1}, floor.(ROI[i,:]))
     dx, dy = ROI[i, :] - x_floor
@@ -73,7 +73,7 @@ end
 
 function SplineDerivative(B_coeff, ROI, pad_size)
   QK = get_QK()
-  df = Array{Float64}(size(ROI))
+  df = Array{Float64}(undef,size(ROI))
   vec1 = zeros(6)
   vec1[1] = 1
   vec2 = zeros(6)

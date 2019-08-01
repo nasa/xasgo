@@ -88,7 +88,7 @@ function ComputeHessian(f, f_m, df_ddp)
   for i in 1:length(f)
     hessian += df_ddp[i, :] * df_ddp[i, :]'
   end
-  hessian *= 2.0 / sum((f-f_m).^2)
+  hessian *= 2.0 / sum((f.-f_m).^2)
   #display((svd(hessian)[2]))
   return factorize(hessian)
 end
@@ -97,8 +97,8 @@ end
 function ComputeGradient(f, f_m, g, g_m, df_ddp)
   len_p = size(df_ddp,2)
   gradient = zeros(len_p)
-  norm_f = sum((f-f_m).^2)^0.5
-  norm_g = sum((g-g_m).^2)^0.5
+  norm_f = sum((f.-f_m).^2)^0.5
+  norm_g = sum((g.-g_m).^2)^0.5
   for i in 1:length(f)
     gradient += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)* df_ddp[i, :]
   end
@@ -108,8 +108,8 @@ end
 
 
 function ComputeCorrelationCriteria(f, f_m, g, g_m)
-  norm_f = sum((f-f_m).^2)^0.5
-  norm_g = sum((g-g_m).^2)^0.5
+  norm_f = sum((f.-f_m).^2)^0.5
+  norm_g = sum((g.-g_m).^2)^0.5
   C = 0
   for i in 1:length(f)
     C += ((f[i]-f_m)/norm_f - (g[i]-g_m)/norm_g)^2

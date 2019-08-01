@@ -16,7 +16,7 @@ function F_NCorrShift(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess, ccfilt
     rs[:,i] = r_p/m
   end
   β = beta_calc_Ruggles(qs,rs, false)
-  F = VR_deviatoric(β+eye(3))
+  F = VR_deviatoric(β+I)
 end
 
 function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess, ccfilt, windowfunc; numimax = 10)
@@ -28,7 +28,7 @@ function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess,
   PR_p_px = PC_to_phosphor_frame(PR,m)
   converged = false
   num_iterations = 0
-  F_new = eye(3)
+  F_new = I
   while !converged && num_iterations < numimax
     num_iterations += 1
     for i in 1:size(ROIs)[1]
@@ -42,7 +42,7 @@ function F_NCorrShiftIterate(ROIs, ROIsize, DefI, PD, gD, RefI, PR, gR, F_guess,
       rs[:,i] = r_p/m
     end
     β = beta_calc_Ruggles(qs,rs, false)
-    F_new = VR_deviatoric(β+eye(3))
+    F_new = VR_deviatoric(β+I)
     if norm(F_new-F_guess)<100e-6
       converged = true
     else
@@ -65,7 +65,7 @@ function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_siz
   converged = false
   num_iterations = 0
   F_guess = VR_deviatoric(F_guess)
-  F_new = eye(3)
+  F_new = I
 
   while !converged && num_iterations < numimax
     num_iterations += 1
@@ -73,7 +73,7 @@ function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_siz
     F_remap = F_guess#VR_poldec(F_guess)[2]
     RefI = patternremap(RefI_coeffs, pad_size, WarpROI, PR_p_px, PD_p_px-PR_p_px, F_remap, m)
     if RefI == []
-        F_new = eye(3) + ones(3,3)
+        F_new = I + ones(3,3)
         converged = true
     else
         for i in 1:size(ROIs)[1]
@@ -90,7 +90,7 @@ function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_siz
             display(mean(qnorms))
         end
         β = beta_calc_Ruggles(qs,rs, false)
-        F_new = VR_deviatoric(β+eye(3))*F_remap
+        F_new = VR_deviatoric(β+I)*F_remap
         #display(norm(F_new-F_guess))
         if norm(F_new-F_guess)<10e-6
           converged = true
@@ -100,7 +100,7 @@ function F_NCorrRemap(ROIs, ROIsize, WarpROI, DefI, PD, gD, RefI_coeffs, pad_siz
     end
   end
   if (num_iterations >= 20) && (~converged)
-      F_new = eye(3) + ones(3,3)
+      F_new = I + ones(3,3)
   end
   if num_iterations > 1
     println("Number of iterations: ", num_iterations)
